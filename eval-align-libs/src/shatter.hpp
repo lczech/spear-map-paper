@@ -69,6 +69,23 @@ struct ShatterParams
 };
 
 // =================================================================================================
+//     Filter
+// =================================================================================================
+
+// Returns true if the read is suitable for benchmarking.
+// Rejects reads containing any ambiguous base (N), so that alignment errors are attributable
+// to the aligner rather than the input quality.
+inline bool passes_filter( ShatteredRead const& read )
+{
+    for( char const c : read.forward ) {
+        if( c == 'N' ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// =================================================================================================
 //     Helpers
 // =================================================================================================
 

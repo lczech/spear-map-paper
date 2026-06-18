@@ -21,12 +21,16 @@
     Oster Voldgade 5-7, 1350 Copenhagen K, Denmark
 */
 
-#include "harness.hpp"
+#include "stats.hpp"
+#include "mutate.hpp"
 #include "shatter.hpp"
 
 #include "genesis/util/core/logging.hpp"
 
 #include <iostream>
+#include <map>
+#include <random>
+#include <vector>
 
 // =================================================================================================
 //      Main Program
@@ -54,13 +58,59 @@ int main( int argc, char** argv )
     std::string const fasta_path = argv[1];
 
     // -------------------------------------------------------------------------
-    //     Generate reads
+    //     Mutation parameter grid
+    // -------------------------------------------------------------------------
+
+    // Each entry defines one combination of divergence + damage to benchmark.
+    // sub_rate and indel_rate model evolutionary divergence from the reference.
+    // damage_rate models aDNA deamination (C→T at 5', G→A at 3').
+    std::vector<MutateParams> const grid = {
+        // sub    indel  mean_len  dmg    lambda
+        {  0.00,  0.00,  1.5,     0.00,  0.3  },   // clean baseline
+        {  0.05,  0.00,  1.5,     0.00,  0.3  },   // 5% divergence only
+        {  0.10,  0.00,  1.5,     0.00,  0.3  },   // 10% divergence only
+        {  0.05,  0.02,  1.5,     0.00,  0.3  },   // divergence + indels
+        {  0.05,  0.00,  1.5,     0.10,  0.3  },   // divergence + damage
+        {  0.05,  0.02,  1.5,     0.10,  0.3  },   // divergence + indels + damage
+    };
+
+    // -------------------------------------------------------------------------
+    //     Shatter and collect stats
     // -------------------------------------------------------------------------
 
     LOG_MSG << "Alignment library benchmarking";
 
-    auto const stats = collect_stats( shatter( fasta_path ));
-    print_stats( stats );
+    std::mt19937_64 rng( 42 );
+    std::vector<BenchmarkStats> stats( grid.size() );
+
+    size_t total_reads    = 0;
+    size_t filtered_reads = 0;
+    std::map<size_t, size_t> window_hist;
+
+    for( auto const& read : shatter( fasta_path )) {
+        ++total_reads;
+        if( !passes_filter( read )) {
+            ++filtered_reads;
+            continue;
+        }
+        ++window_hist[ read.window_end - read.window_start ];
+
+        for( size_t i = 0; i < grid.size(); ++i ) {
+            auto const mutated = mutate( read, grid[i], rng );
+            ++stats[i].passing_reads;
+            ++stats[i].length_hist[ mutated.forward.size() ];
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    //     Report
+    // -------------------------------------------------------------------------
+
+    print_global_stats( total_reads, filtered_reads, window_hist );
+
+    for( size_t i = 0; i < grid.size(); ++i ) {
+        print_stats( grid[i], stats[i] );
+    }
 
     return 0;
 }
