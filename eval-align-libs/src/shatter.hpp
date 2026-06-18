@@ -60,12 +60,13 @@ struct ShatteredRead
 
 struct ShatterParams
 {
-    double   gamma_a       = 2.5;   // gamma shape  \  together give a peak around 55-65 bp,
-    double   gamma_b       = 30.0;  // gamma scale  /  range [min_len, max_len]
-    int      min_len       = 30;
-    int      max_len       = 150;
-    size_t   interval_size = 128;   // reference window is aligned to multiples of this
-    uint64_t seed          = 42;
+    double   gamma_a        = 2.5;   // gamma shape  \  together give a peak around 55-65 bp,
+    double   gamma_b        = 30.0;  // gamma scale  /  range [min_len, max_len]
+    int      min_len        = 30;
+    int      max_len        = 150;
+    size_t   interval_size  = 128;   // reference window is aligned to multiples of this
+    size_t   window_padding = 16;    // extra reference context added outside the interval window
+    uint64_t seed           = 42;
 };
 
 // =================================================================================================
@@ -156,17 +157,22 @@ Generator<ShatteredRead> shatter(
             }
 
             // Compute interval-aligned reference window boundaries.
-            size_t const win_start =
+            size_t const win_start_ivl =
                 ( pos / params.interval_size ) * params.interval_size;
-            size_t const win_end =
+            size_t const win_end_ivl =
                 (( pos + len + params.interval_size - 1 ) / params.interval_size )
                 * params.interval_size;
 
-            // Skip fragments whose window would extend past the chromosome end.
-            if( win_end > chr_len ) {
+            // Skip fragments whose interval window would extend past the chromosome end.
+            if( win_end_ivl > chr_len ) {
                 pos += len;
                 continue;
             }
+
+            // Apply padding, clamped to chromosome boundaries.
+            size_t const win_start = win_start_ivl > params.window_padding
+                ? win_start_ivl - params.window_padding : 0;
+            size_t const win_end = std::min( chr_len, win_end_ivl + params.window_padding );
 
             // Extract and clean the read sequence.
             std::string fwd = seq.sites().substr( pos, len );

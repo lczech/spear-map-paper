@@ -27,6 +27,8 @@
 
 #include "genesis/util/core/logging.hpp"
 
+#include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <map>
 #include <random>
@@ -95,10 +97,31 @@ int main( int argc, char** argv )
         }
         ++window_hist[ read.window_end - read.window_start ];
 
+        // True read position within the reference window (same for all param sets)
+        int32_t const true_start = static_cast<int32_t>( read.origin_start - read.window_start );
+        int32_t const true_end   = static_cast<int32_t>( read.origin_end   - read.window_start );
+
         for( size_t i = 0; i < grid.size(); ++i ) {
             auto const mutated = mutate( read, grid[i], rng );
             ++stats[i].passing_reads;
             ++stats[i].length_hist[ mutated.forward.size() ];
+
+            // --- Alignment (not yet wired in) ---
+            // Reference encoding (untimed) would go here for libraries that need it.
+            //
+            // Cold (encode query + align):
+            //   auto t0 = std::chrono::high_resolution_clock::now();
+            //   AlignResult result = align_xxx_cold( mutated.forward, mutated.window );
+            //   auto t1 = std::chrono::high_resolution_clock::now();
+            //   uint64_t ns_cold = std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count();
+            //
+            // Hot (align only, query already encoded):
+            //   auto t2 = std::chrono::high_resolution_clock::now();
+            //   AlignResult result_hot = align_xxx_hot( encoded_query, encoded_window );
+            //   auto t3 = std::chrono::high_resolution_clock::now();
+            //   uint64_t ns_hot = std::chrono::duration_cast<std::chrono::nanoseconds>( t3 - t2 ).count();
+            //
+            //   accumulate_align_result( stats[i], result, ns_cold, ns_hot, true_start, true_end );
         }
     }
 

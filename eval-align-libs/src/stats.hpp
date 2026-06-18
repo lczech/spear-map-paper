@@ -26,9 +26,26 @@
 #include "mutate.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <map>
+
+// =================================================================================================
+//     AlignResult
+// =================================================================================================
+
+// Uniform return type for all aligner wrappers.
+// start and end are 0-based positions within the reference window.
+// score is whatever the library natively returns (edit distance, alignment score, etc.).
+struct AlignResult
+{
+    int32_t start  = 0;
+    int32_t end    = 0;
+    int32_t score  = 0;
+    bool    failed = false;
+};
 
 // =================================================================================================
 //     BenchmarkStats
@@ -38,9 +55,49 @@
 // Window size histogram and total/filtered counts are global and tracked separately in main.
 struct BenchmarkStats
 {
-    size_t passing_reads = 0;
-    std::map<size_t, size_t> length_hist;   // mutated read length (bp) → count
+    size_t passing_reads      = 0;
+    size_t failed_alignments  = 0;
+
+    uint64_t total_ns_cold = 0;
+    uint64_t total_ns_hot  = 0;
+    uint64_t min_ns_cold   = std::numeric_limits<uint64_t>::max();
+    uint64_t max_ns_cold   = 0;
+    uint64_t min_ns_hot    = std::numeric_limits<uint64_t>::max();
+    uint64_t max_ns_hot    = 0;
+
+    std::map<size_t,  size_t> length_hist;       // mutated read length (bp) → count
+    std::map<int32_t, size_t> start_offset_hist; // aligner start - true start → count
+    std::map<int32_t, size_t> end_offset_hist;   // aligner end   - true end   → count
+    std::map<int32_t, size_t> score_hist;        // native library score/edit distance → count
 };
+
+// =================================================================================================
+//     accumulate_align_result
+// =================================================================================================
+
+inline void accumulate_align_result(
+    BenchmarkStats& stats,
+    AlignResult const& result,
+    uint64_t ns_cold,
+    uint64_t ns_hot,
+    int32_t true_start_in_window,
+    int32_t true_end_in_window
+) {
+    if( result.failed ) {
+        ++stats.failed_alignments;
+        return;
+    }
+    stats.total_ns_cold += ns_cold;
+    stats.min_ns_cold    = std::min( stats.min_ns_cold, ns_cold );
+    stats.max_ns_cold    = std::max( stats.max_ns_cold, ns_cold );
+    stats.total_ns_hot  += ns_hot;
+    stats.min_ns_hot     = std::min( stats.min_ns_hot,  ns_hot  );
+    stats.max_ns_hot     = std::max( stats.max_ns_hot,  ns_hot  );
+
+    ++stats.start_offset_hist[ result.start - true_start_in_window ];
+    ++stats.end_offset_hist[   result.end   - true_end_in_window   ];
+    ++stats.score_hist[ result.score ];
+}
 
 // =================================================================================================
 //     print_stats
@@ -61,6 +118,25 @@ inline void print_global_stats(
     }
 }
 
+inline void print_hist(
+    std::string const& label,
+    std::map<int32_t, size_t> const& hist,
+    std::string const& unit = ""
+) {
+    if( hist.empty() ) return;
+    size_t const max_count = std::max_element(
+        hist.begin(), hist.end(),
+        []( auto const& a, auto const& b ){ return a.second < b.second; }
+    )->second;
+    std::cout << "  " << label << ":\n";
+    for( auto const& [val, count] : hist ) {
+        size_t const bar = ( count * 40 ) / max_count;
+        std::cout
+            << "    " << std::setw(5) << val << unit << " | "
+            << std::string( bar, '#' ) << " " << count << "\n";
+    }
+}
+
 inline void print_stats( MutateParams const& params, BenchmarkStats const& stats )
 {
     std::cout << std::fixed << std::setprecision( 3 );
@@ -70,21 +146,36 @@ inline void print_stats( MutateParams const& params, BenchmarkStats const& stats
         << "  mean_len=" << params.indel_mean_len
         << "  dmg=" << params.damage_rate
         << "  lambda=" << params.decay_lambda
-        << " ]  passing=" << stats.passing_reads << "\n";
-
-    if( stats.length_hist.empty() ) {
-        return;
+        << " ]\n";
+    std::cout << "  passing=" << stats.passing_reads;
+    if( stats.failed_alignments > 0 ) {
+        std::cout << "  failed=" << stats.failed_alignments;
     }
+    std::cout << "\n";
 
-    size_t const max_count = std::max_element(
-        stats.length_hist.begin(), stats.length_hist.end(),
-        []( auto const& a, auto const& b ){ return a.second < b.second; }
-    )->second;
-
-    for( auto const& [len, count] : stats.length_hist ) {
-        size_t const bar = ( count * 40 ) / max_count;
+    // Timing — only printed once aligners are wired in
+    size_t const aligned = stats.passing_reads - stats.failed_alignments;
+    if( stats.total_ns_cold > 0 && aligned > 0 ) {
+        std::cout << std::fixed << std::setprecision( 1 );
         std::cout
-            << "  " << std::setw(4) << len << " bp | "
-            << std::string( bar, '#' ) << " " << count << "\n";
+            << "  cold: mean=" << ( stats.total_ns_cold / aligned )
+            << " ns  min=" << stats.min_ns_cold
+            << " ns  max=" << stats.max_ns_cold << " ns\n";
     }
+    if( stats.total_ns_hot > 0 && aligned > 0 ) {
+        std::cout
+            << "  hot:  mean=" << ( stats.total_ns_hot / aligned )
+            << " ns  min=" << stats.min_ns_hot
+            << " ns  max=" << stats.max_ns_hot  << " ns\n";
+    }
+
+    // Histograms
+    std::map<int32_t, size_t> length_hist_signed;
+    for( auto const& [k, v] : stats.length_hist ) {
+        length_hist_signed[ static_cast<int32_t>( k ) ] = v;
+    }
+    print_hist( "read length (bp)", length_hist_signed, " bp" );
+    print_hist( "start offset",     stats.start_offset_hist, " bp" );
+    print_hist( "end offset",       stats.end_offset_hist,   " bp" );
+    print_hist( "score",            stats.score_hist );
 }
