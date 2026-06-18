@@ -21,10 +21,12 @@
     Oster Voldgade 5-7, 1350 Copenhagen K, Denmark
 */
 
-#include "genesis/util/core/exception.hpp"
+#include "harness.hpp"
+#include "shatter.hpp"
+
 #include "genesis/util/core/logging.hpp"
 
-#include <sstream>
+#include <iostream>
 
 // =================================================================================================
 //      Main Program
@@ -32,17 +34,33 @@
 
 int main( int argc, char** argv )
 {
-    (void) argc;
-    (void) argv;
-
     // -------------------------------------------------------------------------
-    //     Logging
+    //     Init
     // -------------------------------------------------------------------------
 
-    // Activate logging.
     genesis::util::core::Logging::log_to_stdout();
     genesis::util::core::Logging::details.level = false;
-    genesis::util::core::Logging::details.time = true;
+    genesis::util::core::Logging::details.time  = true;
+    genesis::util::core::Options::get().init_global_thread_pool( 1 );
+
+    // -------------------------------------------------------------------------
+    //     Arguments
+    // -------------------------------------------------------------------------
+
+    if( argc != 2 ) {
+        std::cerr << "Usage: " << argv[0] << " <reference.fasta>\n";
+        return 1;
+    }
+    std::string const fasta_path = argv[1];
+
+    // -------------------------------------------------------------------------
+    //     Generate reads
+    // -------------------------------------------------------------------------
 
     LOG_MSG << "Alignment library benchmarking";
+
+    auto const stats = collect_stats( shatter( fasta_path ));
+    print_stats( stats );
+
+    return 0;
 }
