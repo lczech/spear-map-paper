@@ -1,0 +1,3 @@
+[submodule "deps/genesis"]
+	path = deps/genesis
+	url = https://github.com/lczech/genesis.git

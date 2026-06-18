@@ -44,6 +44,10 @@ build/
 Build/
 build-*/
 
+# Binary directories
+bin/
+Bin/
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt
