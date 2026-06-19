@@ -292,6 +292,8 @@ int main( int argc, char** argv )
         }
     }
 
+    write_all_csvs( BENCH_DIR, grid, length_hists, stats, window_hist );
+
     parasail_matrix_free( mat_custom );
     return 0;
 }

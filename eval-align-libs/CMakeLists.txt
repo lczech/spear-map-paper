@@ -190,6 +190,10 @@ add_executable( eval-align-libs src/main.cpp )
 
 target_include_directories( eval-align-libs PRIVATE "${PROJECT_SOURCE_DIR}/src" )
 
+target_compile_definitions( eval-align-libs PRIVATE
+    BENCH_DIR="${PROJECT_SOURCE_DIR}/benchmarks"
+)
+
 target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib ksw2 parasail )
 
 if( GENESIS_HAS_LTO )

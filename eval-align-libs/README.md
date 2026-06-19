@@ -6,5 +6,5 @@ Compile:
 
 ```
 cd spear-map-paper/eval-align-libs
-cmake -B build && cmake --build build
+cmake -B build && cmake --build build 8
 ```

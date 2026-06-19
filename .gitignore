@@ -71,3 +71,8 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Benchmarks and figures,
+# unless explicitly added
+benchmarks/
+figures/
