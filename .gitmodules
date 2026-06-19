@@ -1,3 +1,6 @@
 [submodule "deps/genesis"]
 	path = deps/genesis
 	url = https://github.com/lczech/genesis.git
+[submodule "deps/edlib"]
+	path = deps/edlib
+	url = https://github.com/Martinsos/edlib.git

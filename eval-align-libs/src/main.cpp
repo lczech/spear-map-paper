@@ -21,6 +21,7 @@
     Oster Voldgade 5-7, 1350 Copenhagen K, Denmark
 */
 
+#include "aligner_edlib.hpp"
 #include "stats.hpp"
 #include "mutate.hpp"
 #include "shatter.hpp"
@@ -68,12 +69,12 @@ int main( int argc, char** argv )
     // damage_rate models aDNA deamination (C→T at 5', G→A at 3').
     std::vector<MutateParams> const grid = {
         // sub    indel  mean_len  dmg    lambda
-        {  0.00,  0.00,  1.5,     0.00,  0.3  },   // clean baseline
-        {  0.05,  0.00,  1.5,     0.00,  0.3  },   // 5% divergence only
-        {  0.10,  0.00,  1.5,     0.00,  0.3  },   // 10% divergence only
-        {  0.05,  0.02,  1.5,     0.00,  0.3  },   // divergence + indels
-        {  0.05,  0.00,  1.5,     0.10,  0.3  },   // divergence + damage
-        {  0.05,  0.02,  1.5,     0.10,  0.3  },   // divergence + indels + damage
+        // {  0.00,  0.00,  1.5,     0.00,  0.3  },   // clean baseline
+        // {  0.05,  0.00,  1.5,     0.00,  0.3  },   // 5% divergence only
+        // {  0.10,  0.00,  1.5,     0.00,  0.3  },   // 10% divergence only
+        // {  0.05,  0.02,  1.5,     0.00,  0.3  },   // divergence + indels
+        // {  0.05,  0.00,  1.5,     0.10,  0.3  },   // divergence + damage
+        // {  0.05,  0.02,  1.5,     0.10,  0.3  },   // divergence + indels + damage
     };
 
     // -------------------------------------------------------------------------
@@ -106,22 +107,14 @@ int main( int argc, char** argv )
             ++stats[i].passing_reads;
             ++stats[i].length_hist[ mutated.forward.size() ];
 
-            // --- Alignment (not yet wired in) ---
-            // Reference encoding (untimed) would go here for libraries that need it.
-            //
-            // Cold (encode query + align):
-            //   auto t0 = std::chrono::high_resolution_clock::now();
-            //   AlignResult result = align_xxx_cold( mutated.forward, mutated.window );
-            //   auto t1 = std::chrono::high_resolution_clock::now();
-            //   uint64_t ns_cold = std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count();
-            //
-            // Hot (align only, query already encoded):
-            //   auto t2 = std::chrono::high_resolution_clock::now();
-            //   AlignResult result_hot = align_xxx_hot( encoded_query, encoded_window );
-            //   auto t3 = std::chrono::high_resolution_clock::now();
-            //   uint64_t ns_hot = std::chrono::duration_cast<std::chrono::nanoseconds>( t3 - t2 ).count();
-            //
-            //   accumulate_align_result( stats[i], result, ns_cold, ns_hot, true_start, true_end );
+            // --- edlib alignment (no hot/cold split — edlib has no precomputation) ---
+            // auto const t0 = std::chrono::high_resolution_clock::now();
+            // AlignResult const result = align_edlib( mutated.forward, mutated.window );
+            // auto const t1 = std::chrono::high_resolution_clock::now();
+            // uint64_t const ns = static_cast<uint64_t>(
+            //     std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count()
+            // );
+            // accumulate_align_result( stats[i], result, ns, ns, true_start, true_end );
         }
     }
 

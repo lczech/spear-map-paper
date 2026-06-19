@@ -115,6 +115,25 @@ endif()
 # Genesis headers — marked SYSTEM to suppress warnings from their headers
 include_directories( SYSTEM "${genesis_SOURCE}/lib" )
 
+# --- edlib --------------------------------------------------------------------
+
+set( edlib_SUBMODULE_DIR "${DEPS_DIR}/edlib" )
+message( STATUS "Looking for edlib" )
+
+if( EXISTS "${edlib_SUBMODULE_DIR}/CMakeLists.txt" )
+    message( STATUS "${ColorGreen}Found edlib submodule at ${edlib_SUBMODULE_DIR}${ColorEnd}" )
+    set( BUILD_TESTING          OFF CACHE BOOL "" FORCE )
+    set( EDLIB_BUILD_EXAMPLES   OFF CACHE BOOL "" FORCE )
+    set( EDLIB_BUILD_UTILITIES  OFF CACHE BOOL "" FORCE )
+    set( EDLIB_ENABLE_INSTALL   OFF CACHE BOOL "" FORCE )
+    add_subdirectory( "${edlib_SUBMODULE_DIR}" "${CMAKE_BINARY_DIR}/edlib" )
+else()
+    message( FATAL_ERROR
+        "${ColorRed}edlib submodule not found at ${edlib_SUBMODULE_DIR}. "
+        "Run: git submodule update --init --recursive${ColorEnd}"
+    )
+endif()
+
 # --------------------------------------------------------------------------------------------------
 #   Target
 # --------------------------------------------------------------------------------------------------
@@ -123,7 +142,7 @@ add_executable( eval-align-libs src/main.cpp )
 
 target_include_directories( eval-align-libs PRIVATE "${PROJECT_SOURCE_DIR}/src" )
 
-target_link_libraries( eval-align-libs PRIVATE genesis_lib_static )
+target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib )
 
 if( GENESIS_HAS_LTO )
     message( STATUS "Building with LTO/IPO support" )
