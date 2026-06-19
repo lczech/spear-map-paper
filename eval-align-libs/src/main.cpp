@@ -33,6 +33,7 @@
 #include <iostream>
 #include <map>
 #include <random>
+#include <string>
 #include <vector>
 
 // =================================================================================================
@@ -54,11 +55,34 @@ int main( int argc, char** argv )
     //     Arguments
     // -------------------------------------------------------------------------
 
-    if( argc != 2 ) {
-        std::cerr << "Usage: " << argv[0] << " <reference.fasta>\n";
+    std::string fasta_path;
+    size_t max_reads = 0;         // 0 = unlimited
+    size_t max_chromosomes = 0;   // 0 = unlimited
+
+    for( int a = 1; a < argc; ++a ) {
+        std::string const arg = argv[a];
+        if(( arg == "--max-reads" || arg == "--max-chromosomes" ) && a + 1 < argc ) {
+            size_t const val = std::stoull( argv[++a] );
+            if( arg == "--max-reads" )       max_reads       = val;
+            if( arg == "--max-chromosomes" ) max_chromosomes = val;
+        } else if( fasta_path.empty() && arg[0] != '-' ) {
+            fasta_path = arg;
+        } else {
+            std::cerr << "Unknown argument: " << arg << "\n";
+            std::cerr << "Usage: " << argv[0]
+                      << " <reference.fasta>"
+                      << " [--max-reads N]"
+                      << " [--max-chromosomes N]\n";
+            return 1;
+        }
+    }
+    if( fasta_path.empty() ) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <reference.fasta>"
+                  << " [--max-reads N]"
+                  << " [--max-chromosomes N]\n";
         return 1;
     }
-    std::string const fasta_path = argv[1];
 
     // -------------------------------------------------------------------------
     //     Mutation parameter grid
@@ -90,12 +114,27 @@ int main( int argc, char** argv )
         stats.emplace_back( "edlib" );
     }
 
-    size_t total_reads    = 0;
-    size_t filtered_reads = 0;
+    size_t total_reads      = 0;
+    size_t filtered_reads   = 0;
+    size_t chromosomes_seen = 0;
+    std::string last_chromosome;
     std::map<size_t, size_t> window_hist;
 
     for( auto const& read : shatter( fasta_path )) {
+        // Limits for quick testing
+        if( read.chromosome != last_chromosome ) {
+            last_chromosome = read.chromosome;
+            ++chromosomes_seen;
+            if( max_chromosomes > 0 && chromosomes_seen > max_chromosomes ) {
+                break;
+            }
+        }
         ++total_reads;
+        if( max_reads > 0 && total_reads > max_reads ) {
+            break;
+        }
+
+        // Filter out anything with Ns - enough for benchmarking.
         if( !passes_filter( read )) {
             ++filtered_reads;
             continue;
@@ -106,6 +145,7 @@ int main( int argc, char** argv )
         int32_t const true_start = static_cast<int32_t>( read.origin_start - read.window_start );
         int32_t const true_end   = static_cast<int32_t>( read.origin_end   - read.window_start );
 
+        // Mutate and align for each parameter set in the grid of mutation params.
         for( size_t i = 0; i < grid.size(); ++i ) {
             auto const mutated = mutate( read, grid[i], rng );
             ++stats[i].passing_reads;
