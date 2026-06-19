@@ -63,16 +63,15 @@ struct BenchmarkStats
 
     std::string name;
 
-    size_t passing_reads     = 0;
-    size_t failed_alignments = 0;
+    size_t successful_alignments = 0;
+    size_t failed_alignments     = 0;
 
     uint64_t total_ns = 0;
     uint64_t min_ns   = std::numeric_limits<uint64_t>::max();
     uint64_t max_ns   = 0;
 
-    std::vector<uint64_t> timing_hist;           // log10 buckets: 0=<1µs, 1=1-10µs, …
+    std::vector<uint64_t> timing_hist;            // log10 buckets: 0=<1µs, 1=1-10µs, …
 
-    std::map<size_t,  size_t> length_hist;       // mutated read length (bp) → count
     std::map<int32_t, size_t> start_offset_hist; // aligner start - true start → count
     std::map<int32_t, size_t> end_offset_hist;   // aligner end   - true end   → count
     std::map<int32_t, size_t> score_hist;        // native library score/edit distance → count
@@ -117,11 +116,6 @@ inline void accumulate_align_result(
     int32_t true_start_in_window,
     int32_t true_end_in_window
 ) {
-    if( result.failed ) {
-        ++stats.failed_alignments;
-        return;
-    }
-
     stats.total_ns += ns;
     stats.min_ns    = std::min( stats.min_ns, ns );
     stats.max_ns    = std::max( stats.max_ns, ns );
@@ -132,6 +126,12 @@ inline void accumulate_align_result(
     }
     ++stats.timing_hist[b];
 
+    if( result.failed ) {
+        ++stats.failed_alignments;
+        return;
+    }
+
+    ++stats.successful_alignments;
     ++stats.start_offset_hist[ result.start - true_start_in_window ];
     ++stats.end_offset_hist[   result.end   - true_end_in_window   ];
     ++stats.score_hist[ result.score ];
@@ -181,7 +181,7 @@ inline void print_timing_hist( std::vector<uint64_t> const& hist )
     uint64_t const max_count = *std::max_element( hist.begin(), hist.end() );
     if( max_count == 0 ) return;
 
-    std::cout << "  timing (ns):\n";
+    std::cout << "  timing:\n";
     for( size_t b = 0; b < hist.size(); ++b ) {
         size_t const bar = static_cast<size_t>( ( hist[b] * 40 ) / max_count );
         std::cout
@@ -190,38 +190,56 @@ inline void print_timing_hist( std::vector<uint64_t> const& hist )
     }
 }
 
-inline void print_stats( MutateParams const& params, BenchmarkStats const& stats )
+inline void print_length_hist( std::vector<size_t> const& hist )
 {
-    std::cout << "\n===========================================================================\n";
-    std::cout << std::fixed << std::setprecision( 3 ) << "\n";
+    if( hist.empty() ) return;
+    size_t const max_count = *std::max_element( hist.begin(), hist.end() );
+    if( max_count == 0 ) return;
+
+    std::cout << "  read length (bp):\n";
+    for( size_t len = 0; len < hist.size(); ++len ) {
+        if( hist[len] == 0 ) continue;
+        size_t const bar = ( hist[len] * 40 ) / max_count;
+        std::cout
+            << "    " << std::setw(5) << len << " bp | "
+            << std::string( bar, '#' ) << " " << hist[len] << "\n";
+    }
+}
+
+inline void print_param_header( MutateParams const& params, std::vector<size_t> const& length_hist )
+{
+    std::cout << "\n###########################################################################\n";
+    std::cout << std::fixed << std::setprecision( 3 );
     std::cout
-        << "[ " << stats.name
-        << "  sub=" << params.sub_rate
+        << "sub=" << params.sub_rate
         << "  indel=" << params.indel_rate
         << "  mean_len=" << params.indel_mean_len
         << "  dmg=" << params.damage_rate
         << "  lambda=" << params.decay_lambda
-        << " ]\n";
-    std::cout << "  passing=" << stats.passing_reads;
+        << "\n";
+    print_length_hist( length_hist );
+}
+
+inline void print_stats( BenchmarkStats const& stats )
+{
+    std::cout << "\n---------------------------------------------------------------------------\n";
+    std::cout << "[ " << stats.name << " ]\n";
+    size_t const total = stats.successful_alignments + stats.failed_alignments;
+    std::cout << "  processed=" << total;
+    std::cout << "  successful=" << stats.successful_alignments;
     std::cout << "  failed=" << stats.failed_alignments;
     std::cout << "\n";
 
-    size_t const aligned = stats.passing_reads - stats.failed_alignments;
-    if( stats.total_ns > 0 && aligned > 0 ) {
+    if( stats.total_ns > 0 && total > 0 ) {
         std::cout << std::fixed << std::setprecision( 1 );
         std::cout
-            << "  timing: mean=" << ( stats.total_ns / aligned )
+            << "  timing: mean=" << ( stats.total_ns / total )
             << " ns  min=" << stats.min_ns
             << " ns  max=" << stats.max_ns << " ns\n";
         print_timing_hist( stats.timing_hist );
     }
 
-    std::map<int32_t, size_t> length_hist_signed;
-    for( auto const& [k, v] : stats.length_hist ) {
-        length_hist_signed[ static_cast<int32_t>( k ) ] = v;
-    }
-    print_hist( "read length (bp)", length_hist_signed, " bp" );
-    print_hist( "start offset",     stats.start_offset_hist, " bp" );
-    print_hist( "end offset",       stats.end_offset_hist,   " bp" );
-    print_hist( "score",            stats.score_hist );
+    print_hist( "start offset", stats.start_offset_hist, " bp" );
+    print_hist( "end offset",   stats.end_offset_hist,   " bp" );
+    print_hist( "score",        stats.score_hist );
 }

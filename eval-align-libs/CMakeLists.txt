@@ -134,6 +134,36 @@ else()
     )
 endif()
 
+# --- ksw2 --------------------------------------------------------------------
+
+set( ksw2_SUBMODULE_DIR "${DEPS_DIR}/ksw2" )
+message( STATUS "Looking for ksw2" )
+
+if( EXISTS "${ksw2_SUBMODULE_DIR}/ksw2.h" )
+    message( STATUS "${ColorGreen}Found ksw2 submodule at ${ksw2_SUBMODULE_DIR}${ColorEnd}" )
+
+    include( CheckCCompilerFlag )
+    check_c_compiler_flag( "-msse4.1" KSW2_COMPILER_HAS_SSE41 )
+
+    if( KSW2_COMPILER_HAS_SSE41 )
+        message( STATUS "${ColorGreen}ksw2: using SSE4.1 optimised version${ColorEnd}" )
+        add_library( ksw2 STATIC "${ksw2_SUBMODULE_DIR}/ksw2_extz2_sse.c" )
+        target_compile_options( ksw2 PRIVATE "-msse4.1" )
+        target_compile_definitions( ksw2 PUBLIC KSW2_HAS_SSE41 )
+    else()
+        message( STATUS "${ColorYellow}ksw2: SSE4.1 not available, using generic fallback${ColorEnd}" )
+        add_library( ksw2 STATIC "${ksw2_SUBMODULE_DIR}/ksw2_extz.c" )
+    endif()
+
+    target_include_directories( ksw2 SYSTEM PUBLIC "${ksw2_SUBMODULE_DIR}" )
+else()
+    message( FATAL_ERROR
+        "${ColorRed}ksw2 submodule not found at ${ksw2_SUBMODULE_DIR}. "
+        "From the spear-map-paper directory run:\n"
+        "  git submodule add https://github.com/lh3/ksw2.git deps/ksw2${ColorEnd}"
+    )
+endif()
+
 # --------------------------------------------------------------------------------------------------
 #   Target
 # --------------------------------------------------------------------------------------------------
@@ -142,7 +172,7 @@ add_executable( eval-align-libs src/main.cpp )
 
 target_include_directories( eval-align-libs PRIVATE "${PROJECT_SOURCE_DIR}/src" )
 
-target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib )
+target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib ksw2 )
 
 if( GENESIS_HAS_LTO )
     message( STATUS "Building with LTO/IPO support" )

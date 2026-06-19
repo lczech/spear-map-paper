@@ -4,3 +4,6 @@
 [submodule "deps/edlib"]
 	path = deps/edlib
 	url = https://github.com/Martinsos/edlib.git
+[submodule "deps/ksw2"]
+	path = deps/ksw2
+	url = https://github.com/lh3/ksw2.git

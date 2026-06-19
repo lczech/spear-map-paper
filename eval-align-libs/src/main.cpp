@@ -22,6 +22,7 @@
 */
 
 #include "aligner_edlib.hpp"
+#include "aligner_ksw2.hpp"
 #include "stats.hpp"
 #include "mutate.hpp"
 #include "shatter.hpp"
@@ -108,10 +109,13 @@ int main( int argc, char** argv )
     LOG_MSG << "Alignment library benchmarking";
 
     std::mt19937_64 rng( 42 );
-    std::vector<BenchmarkStats> stats;
-    stats.reserve( grid.size() );
+    std::vector<BenchmarkStats> edlib_stats, ksw2_stats;
+    std::vector<std::vector<size_t>> length_hists( grid.size() );
+    edlib_stats.reserve( grid.size() );
+    ksw2_stats.reserve(  grid.size() );
     for( size_t i = 0; i < grid.size(); ++i ) {
-        stats.emplace_back( "edlib" );
+        edlib_stats.emplace_back( "edlib" );
+        ksw2_stats.emplace_back(  "ksw2"  );
     }
 
     size_t total_reads      = 0;
@@ -148,17 +152,32 @@ int main( int argc, char** argv )
         // Mutate and align for each parameter set in the grid of mutation params.
         for( size_t i = 0; i < grid.size(); ++i ) {
             auto const mutated = mutate( read, grid[i], rng );
-            ++stats[i].passing_reads;
-            ++stats[i].length_hist[ mutated.forward.size() ];
 
-            // --- edlib alignment (no hot/cold split — edlib has no precomputation) ---
-            auto const t0 = std::chrono::high_resolution_clock::now();
-            AlignResult const result = align_edlib( mutated.forward, mutated.window );
-            auto const t1 = std::chrono::high_resolution_clock::now();
-            uint64_t const ns = static_cast<uint64_t>(
-                std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count()
-            );
-            accumulate_align_result( stats[i], result, ns, true_start, true_end );
+            size_t const len = mutated.forward.size();
+            if( len >= length_hists[i].size() ) length_hists[i].resize( len + 1, 0 );
+            ++length_hists[i][len];
+
+            // --- edlib (no hot/cold split — no precomputation) ---
+            {
+                auto const t0 = std::chrono::high_resolution_clock::now();
+                AlignResult const result = align_edlib( mutated.forward, mutated.window );
+                auto const t1 = std::chrono::high_resolution_clock::now();
+                uint64_t const ns = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count()
+                );
+                accumulate_align_result( edlib_stats[i], result, ns, true_start, true_end );
+            }
+
+            // --- ksw2 (forward + reverse pass timed together as one HW alignment) ---
+            {
+                auto const t0 = std::chrono::high_resolution_clock::now();
+                AlignResult const result = align_ksw2( mutated.forward, mutated.window );
+                auto const t1 = std::chrono::high_resolution_clock::now();
+                uint64_t const ns = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count()
+                );
+                accumulate_align_result( ksw2_stats[i], result, ns, true_start, true_end );
+            }
         }
     }
 
@@ -169,7 +188,9 @@ int main( int argc, char** argv )
     print_global_stats( total_reads, filtered_reads, window_hist );
 
     for( size_t i = 0; i < grid.size(); ++i ) {
-        print_stats( grid[i], stats[i] );
+        print_param_header( grid[i], length_hists[i] );
+        print_stats( edlib_stats[i] );
+        print_stats( ksw2_stats[i]  );
     }
 
     return 0;
