@@ -33,7 +33,7 @@
 //     edlib aligner
 // =================================================================================================
 
-// Semi-global (infix / HW) alignment of query against target using edlib.
+// Fitting (semi-global) alignment of query against target using edlib (EDLIB_MODE_HW).
 // No precomputation step exists for edlib, so there is no hot/cold split —
 // this single function covers the full per-call cost.
 // Returns edit distance as score; start and end are 0-based positions in target.

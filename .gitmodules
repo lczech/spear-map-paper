@@ -7,3 +7,6 @@
 [submodule "deps/ksw2"]
 	path = deps/ksw2
 	url = https://github.com/lh3/ksw2.git
+[submodule "deps/parasail"]
+	path = deps/parasail
+	url = https://github.com/jeffdaily/parasail.git

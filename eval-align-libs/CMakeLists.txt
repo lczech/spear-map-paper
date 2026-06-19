@@ -164,6 +164,24 @@ else()
     )
 endif()
 
+# --- parasail ----------------------------------------------------------------
+
+set( parasail_SUBMODULE_DIR "${DEPS_DIR}/parasail" )
+message( STATUS "Looking for parasail" )
+
+if( EXISTS "${parasail_SUBMODULE_DIR}/parasail.h" )
+    message( STATUS "${ColorGreen}Found parasail submodule at ${parasail_SUBMODULE_DIR}${ColorEnd}" )
+    set( BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE )
+    set( BUILD_TESTING     OFF CACHE BOOL "" FORCE )
+    add_subdirectory( "${parasail_SUBMODULE_DIR}" "${CMAKE_BINARY_DIR}/parasail" )
+else()
+    message( FATAL_ERROR
+        "${ColorRed}parasail submodule not found at ${parasail_SUBMODULE_DIR}. "
+        "From the spear-map-paper directory run:\n"
+        "  git submodule add https://github.com/jeffdaily/parasail.git deps/parasail${ColorEnd}"
+    )
+endif()
+
 # --------------------------------------------------------------------------------------------------
 #   Target
 # --------------------------------------------------------------------------------------------------
@@ -172,7 +190,7 @@ add_executable( eval-align-libs src/main.cpp )
 
 target_include_directories( eval-align-libs PRIVATE "${PROJECT_SOURCE_DIR}/src" )
 
-target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib ksw2 )
+target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib ksw2 parasail )
 
 if( GENESIS_HAS_LTO )
     message( STATUS "Building with LTO/IPO support" )

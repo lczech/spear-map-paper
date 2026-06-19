@@ -37,7 +37,7 @@ extern "C" {
 //     ksw2 aligner
 // =================================================================================================
 
-// Semi-global (HW/fitting) alignment via the reverse trick:
+// Fitting (semi-global) alignment via the reverse trick:
 //   1. Forward pass on (query, target)          → mqe_t = inclusive end in target
 //   2. Reverse pass on (rev_query, rev_target[0..mqe_t]) → mqe_t gives start position
 // Both passes use EXTZ_ONLY | SCORE_ONLY (no CIGAR, no zigzag DP).
