@@ -25,10 +25,13 @@
 
 #include "shatter.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <numeric>
 #include <random>
 #include <string>
+#include <vector>
 
 // =================================================================================================
 //     MutateParams
@@ -41,6 +44,7 @@ struct MutateParams
     double indel_mean_len = 1.5;   // mean indel length (geometric distribution, min 1)
     double damage_rate    = 0.0;   // C→T / G→A probability at position 0 from each terminus
     double decay_lambda   = 0.3;   // exponential decay rate for damage away from termini
+    size_t damage_tail    = 10;    // number of positions from each end to apply damage to
 };
 
 // =================================================================================================
@@ -81,21 +85,31 @@ ShatteredRead mutate(
 ) {
     ShatteredRead result = read;
     std::string& seq = result.forward;
+    size_t len = seq.size();
 
     constexpr char bases[4] = { 'A', 'C', 'G', 'T' };
 
-    std::uniform_real_distribution<double> prob( 0.0, 1.0 );
-    std::uniform_int_distribution<int>     base4( 0, 3 );   // random base for insertions
-    std::uniform_int_distribution<int>     base3( 0, 2 );   // offset into 3 non-current bases
-    std::geometric_distribution<int>       geo(
-        params.indel_mean_len > 0.0 ? 1.0 / params.indel_mean_len : 1.0
-    );
+    std::uniform_int_distribution<int>  base4( 0, 3 );  // random base for insertions
+    std::uniform_int_distribution<int>  base3( 0, 2 );  // offset into 3 non-current bases
+    std::uniform_real_distribution<>    prob( 0.0, 1.0 );
 
     // --- Step 1: Substitutions ---
+    // Draw count from Binomial(len, sub_rate), then sample positions without replacement.
 
-    if( params.sub_rate > 0.0 ) {
-        for( char& c : seq ) {
-            if( prob( rng ) < params.sub_rate ) {
+    if( params.sub_rate > 0.0 && len > 0 ) {
+        std::binomial_distribution<int> binom(
+            static_cast<int>( len ), params.sub_rate
+        );
+        int const k = binom( rng );
+        if( k > 0 ) {
+            // Sample k unique positions using std::sample
+            std::vector<size_t> indices( len );
+            std::iota( indices.begin(), indices.end(), size_t{0} );
+            std::vector<size_t> positions( static_cast<size_t>( k ) );
+            std::sample( indices.begin(), indices.end(), positions.begin(), k, rng );
+
+            for( size_t pos : positions ) {
+                char& c = seq[pos];
                 int cur = 0;
                 for( ; cur < 4; ++cur ) {
                     if( bases[cur] == c ) break;
@@ -106,49 +120,83 @@ ShatteredRead mutate(
     }
 
     // --- Step 2: Indels ---
-    // Process each original position; insertions add random bases before it,
-    // deletions skip ahead. Operates on the already-substituted sequence.
+    // Draw count from Binomial(len, indel_rate), sample positions, then apply in
+    // reverse order (deletions) or accumulate into a new string (both types).
 
-    if( params.indel_rate > 0.0 ) {
-        std::string mutated;
-        mutated.reserve( seq.size() );
+    if( params.indel_rate > 0.0 && len > 0 ) {
+        std::binomial_distribution<int> binom(
+            static_cast<int>( len ), params.indel_rate
+        );
+        int const k = binom( rng );
+        if( k > 0 ) {
+            std::geometric_distribution<int> geo(
+                params.indel_mean_len > 0.0 ? 1.0 / params.indel_mean_len : 1.0
+            );
 
-        for( size_t i = 0; i < seq.size(); ) {
-            if( prob( rng ) < params.indel_rate ) {
-                int const len = 1 + geo( rng );
+            // Sample k positions and sort them so we can process left to right.
+            std::vector<size_t> indices( len );
+            std::iota( indices.begin(), indices.end(), size_t{0} );
+            std::vector<size_t> positions( static_cast<size_t>( k ) );
+            std::sample( indices.begin(), indices.end(), positions.begin(), k, rng );
+            std::sort( positions.begin(), positions.end() );
+
+            std::string mutated;
+            mutated.reserve( seq.size() );
+
+            size_t prev = 0;
+            for( size_t pos : positions ) {
+                // Copy unchanged bases up to this event position
+                mutated.append( seq, prev, pos - prev );
+
+                int const ilen = 1 + geo( rng );
                 if( prob( rng ) < 0.5 ) {
-                    // Insertion: insert `len` random bases before current position
-                    for( int k = 0; k < len; ++k ) {
+                    // Insertion: random bases inserted before seq[pos]
+                    for( int j = 0; j < ilen; ++j ) {
                         mutated += bases[ base4( rng ) ];
                     }
-                    // fall through to also emit seq[i]
+                    mutated += seq[pos];   // keep the base at this position
                 } else {
-                    // Deletion: skip `len` bases
-                    i += static_cast<size_t>( len );
-                    continue;
+                    // Deletion: skip ilen bases starting at pos
+                    pos += static_cast<size_t>( ilen ) - 1;  // -1 because prev advances past pos
                 }
+                prev = pos + 1;
             }
-            if( i < seq.size() ) {
-                mutated += seq[i++];
+            // Copy remainder
+            if( prev < seq.size() ) {
+                mutated.append( seq, prev, seq.size() - prev );
             }
+
+            seq = std::move( mutated );
+            len = seq.size();
         }
-        seq = std::move( mutated );
     }
 
     // --- Step 3: aDNA damage ---
-    // C→T decaying exponentially from 5' end; G→A from 3' end.
+    // Only process the first and last `damage_tail` positions — the exponential
+    // decay makes probabilities negligible beyond that range.
 
-    if( params.damage_rate > 0.0 ) {
-        size_t const len = seq.size();
-        for( size_t j = 0; j < len; ++j ) {
-            double const p5 = params.damage_rate
-                * std::exp( -static_cast<double>( j ) * params.decay_lambda );
-            double const p3 = params.damage_rate
-                * std::exp( -static_cast<double>( len - 1 - j ) * params.decay_lambda );
-            if( seq[j] == 'C' && prob( rng ) < p5 ) {
-                seq[j] = 'T';
-            } else if( seq[j] == 'G' && prob( rng ) < p3 ) {
-                seq[j] = 'A';
+    if( params.damage_rate > 0.0 && len > 0 ) {
+        size_t const tail = std::min( params.damage_tail, len / 2 );
+
+        // 5' end: C→T
+        for( size_t j = 0; j < tail; ++j ) {
+            if( seq[j] == 'C' ) {
+                double const p = params.damage_rate
+                    * std::exp( -static_cast<double>( j ) * params.decay_lambda );
+                if( prob( rng ) < p ) {
+                    seq[j] = 'T';
+                }
+            }
+        }
+        // 3' end: G→A
+        for( size_t j = 0; j < tail; ++j ) {
+            size_t const pos = len - 1 - j;
+            if( seq[pos] == 'G' ) {
+                double const p = params.damage_rate
+                    * std::exp( -static_cast<double>( j ) * params.decay_lambda );
+                if( prob( rng ) < p ) {
+                    seq[pos] = 'A';
+                }
             }
         }
     }

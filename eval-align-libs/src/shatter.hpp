@@ -138,6 +138,7 @@ Generator<ShatteredRead> shatter(
     for( auto const& seq : fasta_stream ) {
         auto const chr      = seq.label().substr( 0, seq.label().find( ' ' ));
         size_t const chr_len = seq.size();
+        LOG_MSG1 << "Processing chromosome " << chr << " (length " << chr_len << ")";
 
         size_t pos = 0;
         while( pos < chr_len ) {
