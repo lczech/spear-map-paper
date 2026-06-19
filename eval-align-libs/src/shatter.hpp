@@ -121,9 +121,10 @@ std::string clean_and_rc( std::string& seq )
 // Each read is paired with an interval-aligned reference window.
 // Fragments whose window would extend past the chromosome end are skipped.
 // N-filtering is left to the caller (see harness.hpp).
+// Params need to be taken by value here because of the co_yield... silly footgun!
 Generator<ShatteredRead> shatter(
-    std::string const& fasta_path,
-    ShatterParams const& params = ShatterParams{}
+    std::string fasta_path,
+    ShatterParams params = ShatterParams{}
 ) {
     using namespace genesis::sequence;
     using namespace genesis::util;
