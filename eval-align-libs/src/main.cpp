@@ -68,13 +68,13 @@ int main( int argc, char** argv )
     // sub_rate and indel_rate model evolutionary divergence from the reference.
     // damage_rate models aDNA deamination (C→T at 5', G→A at 3').
     std::vector<MutateParams> const grid = {
-        // sub    indel  mean_len  dmg    lambda
-        // {  0.00,  0.00,  1.5,     0.00,  0.3  },   // clean baseline
-        // {  0.05,  0.00,  1.5,     0.00,  0.3  },   // 5% divergence only
-        // {  0.10,  0.00,  1.5,     0.00,  0.3  },   // 10% divergence only
-        // {  0.05,  0.02,  1.5,     0.00,  0.3  },   // divergence + indels
-        // {  0.05,  0.00,  1.5,     0.10,  0.3  },   // divergence + damage
-        // {  0.05,  0.02,  1.5,     0.10,  0.3  },   // divergence + indels + damage
+        // sub_rate indel_rate indel_mean_len damage_rate decay_lambda
+        {  0.00,    0.00,      1.5,           0.00,       0.3  }, // clean baseline
+        {  0.05,    0.00,      1.5,           0.00,       0.3  }, // 5% divergence only
+        {  0.10,    0.00,      1.5,           0.00,       0.3  }, // 10% divergence only
+        {  0.05,    0.02,      1.5,           0.00,       0.3  }, // div + indels
+        {  0.05,    0.00,      1.5,           0.10,       0.3  }, // div + damage
+        {  0.05,    0.02,      1.5,           0.10,       0.3  }, // div + indels + damage
     };
 
     // -------------------------------------------------------------------------
@@ -84,7 +84,11 @@ int main( int argc, char** argv )
     LOG_MSG << "Alignment library benchmarking";
 
     std::mt19937_64 rng( 42 );
-    std::vector<BenchmarkStats> stats( grid.size() );
+    std::vector<BenchmarkStats> stats;
+    stats.reserve( grid.size() );
+    for( size_t i = 0; i < grid.size(); ++i ) {
+        stats.emplace_back( "edlib" );
+    }
 
     size_t total_reads    = 0;
     size_t filtered_reads = 0;
@@ -108,13 +112,13 @@ int main( int argc, char** argv )
             ++stats[i].length_hist[ mutated.forward.size() ];
 
             // --- edlib alignment (no hot/cold split — edlib has no precomputation) ---
-            // auto const t0 = std::chrono::high_resolution_clock::now();
-            // AlignResult const result = align_edlib( mutated.forward, mutated.window );
-            // auto const t1 = std::chrono::high_resolution_clock::now();
-            // uint64_t const ns = static_cast<uint64_t>(
-            //     std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count()
-            // );
-            // accumulate_align_result( stats[i], result, ns, ns, true_start, true_end );
+            auto const t0 = std::chrono::high_resolution_clock::now();
+            AlignResult const result = align_edlib( mutated.forward, mutated.window );
+            auto const t1 = std::chrono::high_resolution_clock::now();
+            uint64_t const ns = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count()
+            );
+            accumulate_align_result( stats[i], result, ns, true_start, true_end );
         }
     }
 

@@ -145,7 +145,10 @@ ShatteredRead mutate(
 
             size_t prev = 0;
             for( size_t pos : positions ) {
-                // Copy unchanged bases up to this event position
+                // Skip if this position was already consumed by a previous deletion.
+                if( pos < prev ) continue;
+
+                // Copy unchanged bases up to this event position.
                 mutated.append( seq, prev, pos - prev );
 
                 int const ilen = 1 + geo( rng );
@@ -156,8 +159,9 @@ ShatteredRead mutate(
                     }
                     mutated += seq[pos];   // keep the base at this position
                 } else {
-                    // Deletion: skip ilen bases starting at pos
-                    pos += static_cast<size_t>( ilen ) - 1;  // -1 because prev advances past pos
+                    // Deletion: skip ilen bases starting at pos, clamped to string end.
+                    size_t const del_end = pos + static_cast<size_t>( ilen );
+                    pos = ( del_end < seq.size() ) ? del_end - 1 : seq.size() - 1;
                 }
                 prev = pos + 1;
             }

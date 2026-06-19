@@ -26,11 +26,14 @@
 #include "mutate.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
+#include <string>
+#include <vector>
 
 // =================================================================================================
 //     AlignResult
@@ -51,19 +54,23 @@ struct AlignResult
 //     BenchmarkStats
 // =================================================================================================
 
-// Per-mutation-parameter-set statistics.
+// Per-aligner-call statistics (one instance per library × hot/cold variant).
+// Name identifies the aligner and call type (e.g. "edlib", "ksw2-cold", "ksw2-hot").
 // Window size histogram and total/filtered counts are global and tracked separately in main.
 struct BenchmarkStats
 {
-    size_t passing_reads      = 0;
-    size_t failed_alignments  = 0;
+    explicit BenchmarkStats( std::string n = {} ) : name( std::move(n) ) {}
 
-    uint64_t total_ns_cold = 0;
-    uint64_t total_ns_hot  = 0;
-    uint64_t min_ns_cold   = std::numeric_limits<uint64_t>::max();
-    uint64_t max_ns_cold   = 0;
-    uint64_t min_ns_hot    = std::numeric_limits<uint64_t>::max();
-    uint64_t max_ns_hot    = 0;
+    std::string name;
+
+    size_t passing_reads     = 0;
+    size_t failed_alignments = 0;
+
+    uint64_t total_ns = 0;
+    uint64_t min_ns   = std::numeric_limits<uint64_t>::max();
+    uint64_t max_ns   = 0;
+
+    std::vector<uint64_t> timing_hist;           // log10 buckets: 0=<1µs, 1=1-10µs, …
 
     std::map<size_t,  size_t> length_hist;       // mutated read length (bp) → count
     std::map<int32_t, size_t> start_offset_hist; // aligner start - true start → count
@@ -72,14 +79,41 @@ struct BenchmarkStats
 };
 
 // =================================================================================================
+//     Timing histogram helpers
+// =================================================================================================
+
+// Bucket 0: < 1 µs (ns < 1000)
+// Bucket n (n >= 1): [10^(n+2), 10^(n+3)) ns, i.e. 1-10 µs, 10-100 µs, 100 µs-1 ms, …
+inline size_t timing_bucket( uint64_t ns )
+{
+    if( ns < 1000 ) return 0;
+    return static_cast<size_t>( std::log10( static_cast<double>( ns ))) - 2;
+}
+
+inline std::string timing_bucket_label( size_t bucket )
+{
+    if( bucket == 0 ) return "<1 us";
+
+    uint64_t lo = 1;
+    for( size_t i = 0; i < bucket + 2; ++i ) lo *= 10;
+    uint64_t const hi = lo * 10;
+
+    auto fmt = []( uint64_t ns ) -> std::string {
+        if( ns < 1'000'000ull )     return std::to_string( ns / 1'000ull )         + " us";
+        if( ns < 1'000'000'000ull ) return std::to_string( ns / 1'000'000ull )     + " ms";
+        return                             std::to_string( ns / 1'000'000'000ull ) + " s";
+    };
+    return fmt(lo) + "-" + fmt(hi);
+}
+
+// =================================================================================================
 //     accumulate_align_result
 // =================================================================================================
 
 inline void accumulate_align_result(
     BenchmarkStats& stats,
     AlignResult const& result,
-    uint64_t ns_cold,
-    uint64_t ns_hot,
+    uint64_t ns,
     int32_t true_start_in_window,
     int32_t true_end_in_window
 ) {
@@ -87,12 +121,16 @@ inline void accumulate_align_result(
         ++stats.failed_alignments;
         return;
     }
-    stats.total_ns_cold += ns_cold;
-    stats.min_ns_cold    = std::min( stats.min_ns_cold, ns_cold );
-    stats.max_ns_cold    = std::max( stats.max_ns_cold, ns_cold );
-    stats.total_ns_hot  += ns_hot;
-    stats.min_ns_hot     = std::min( stats.min_ns_hot,  ns_hot  );
-    stats.max_ns_hot     = std::max( stats.max_ns_hot,  ns_hot  );
+
+    stats.total_ns += ns;
+    stats.min_ns    = std::min( stats.min_ns, ns );
+    stats.max_ns    = std::max( stats.max_ns, ns );
+
+    size_t const b = timing_bucket( ns );
+    if( b >= stats.timing_hist.size() ) {
+        stats.timing_hist.resize( b + 1, 0 );
+    }
+    ++stats.timing_hist[b];
 
     ++stats.start_offset_hist[ result.start - true_start_in_window ];
     ++stats.end_offset_hist[   result.end   - true_end_in_window   ];
@@ -137,39 +175,47 @@ inline void print_hist(
     }
 }
 
+inline void print_timing_hist( std::vector<uint64_t> const& hist )
+{
+    if( hist.empty() ) return;
+    uint64_t const max_count = *std::max_element( hist.begin(), hist.end() );
+    if( max_count == 0 ) return;
+
+    std::cout << "  timing (ns):\n";
+    for( size_t b = 0; b < hist.size(); ++b ) {
+        size_t const bar = static_cast<size_t>( ( hist[b] * 40 ) / max_count );
+        std::cout
+            << "    " << std::setw(14) << timing_bucket_label(b) << " | "
+            << std::string( bar, '#' ) << " " << hist[b] << "\n";
+    }
+}
+
 inline void print_stats( MutateParams const& params, BenchmarkStats const& stats )
 {
-    std::cout << std::fixed << std::setprecision( 3 );
+    std::cout << "\n===========================================================================\n";
+    std::cout << std::fixed << std::setprecision( 3 ) << "\n";
     std::cout
-        << "\n[ sub=" << params.sub_rate
+        << "[ " << stats.name
+        << "  sub=" << params.sub_rate
         << "  indel=" << params.indel_rate
         << "  mean_len=" << params.indel_mean_len
         << "  dmg=" << params.damage_rate
         << "  lambda=" << params.decay_lambda
         << " ]\n";
     std::cout << "  passing=" << stats.passing_reads;
-    if( stats.failed_alignments > 0 ) {
-        std::cout << "  failed=" << stats.failed_alignments;
-    }
+    std::cout << "  failed=" << stats.failed_alignments;
     std::cout << "\n";
 
-    // Timing — only printed once aligners are wired in
     size_t const aligned = stats.passing_reads - stats.failed_alignments;
-    if( stats.total_ns_cold > 0 && aligned > 0 ) {
+    if( stats.total_ns > 0 && aligned > 0 ) {
         std::cout << std::fixed << std::setprecision( 1 );
         std::cout
-            << "  cold: mean=" << ( stats.total_ns_cold / aligned )
-            << " ns  min=" << stats.min_ns_cold
-            << " ns  max=" << stats.max_ns_cold << " ns\n";
-    }
-    if( stats.total_ns_hot > 0 && aligned > 0 ) {
-        std::cout
-            << "  hot:  mean=" << ( stats.total_ns_hot / aligned )
-            << " ns  min=" << stats.min_ns_hot
-            << " ns  max=" << stats.max_ns_hot  << " ns\n";
+            << "  timing: mean=" << ( stats.total_ns / aligned )
+            << " ns  min=" << stats.min_ns
+            << " ns  max=" << stats.max_ns << " ns\n";
+        print_timing_hist( stats.timing_hist );
     }
 
-    // Histograms
     std::map<int32_t, size_t> length_hist_signed;
     for( auto const& [k, v] : stats.length_hist ) {
         length_hist_signed[ static_cast<int32_t>( k ) ] = v;
