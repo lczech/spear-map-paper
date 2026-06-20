@@ -33,22 +33,18 @@ def weighted_mae(group, count_col):
 
 
 def compute_mae(df_off):
-    """Return DataFrame with columns [grid_idx, aligner, mae] (mean of start+end MAE)."""
-    start_mae = (
-        df_off.groupby(["grid_idx", "aligner"])
-        .apply(lambda g: weighted_mae(g, "start_count"), include_groups=False)
-        .rename("start_mae")
-        .reset_index()
-    )
+    """Return DataFrame with columns [grid_idx, aligner, mae].
+
+    Uses end MAE for all variants (end position is always available).
+    Score-only variants have no start data, so averaging start+end would produce NaN for them.
+    """
     end_mae = (
         df_off.groupby(["grid_idx", "aligner"])
         .apply(lambda g: weighted_mae(g, "end_count"), include_groups=False)
-        .rename("end_mae")
+        .rename("mae")
         .reset_index()
     )
-    merged = start_mae.merge(end_mae, on=["grid_idx", "aligner"])
-    merged["mae"] = (merged["start_mae"] + merged["end_mae"]) / 2
-    return merged[["grid_idx", "aligner", "mae"]]
+    return end_mae[["grid_idx", "aligner", "mae"]]
 
 
 def main():

@@ -47,10 +47,11 @@
 // score is whatever the library natively returns (edit distance, alignment score, etc.).
 struct AlignResult
 {
-    int32_t start  = 0;
-    int32_t end    = 0;
-    int32_t score  = 0;
-    bool    failed = false;
+    int32_t start     = 0;
+    int32_t end       = 0;
+    int32_t score     = 0;
+    bool    failed    = false;
+    bool    has_start = true;   // false for score-only variants (start is not computed)
 };
 
 // =================================================================================================
@@ -73,7 +74,7 @@ struct BenchmarkStats
     uint64_t min_ns   = std::numeric_limits<uint64_t>::max();
     uint64_t max_ns   = 0;
 
-    std::vector<uint64_t> timing_hist;            // 1-2-5 per-decade log buckets (see timing_bucket)
+    std::vector<uint64_t> timing_hist;            // 10 per-decade log10 buckets (see timing_bucket)
 
     std::map<int32_t, size_t> start_offset_hist; // aligner start - true start → count
     std::map<int32_t, size_t> end_offset_hist;   // aligner end   - true end   → count
@@ -81,42 +82,26 @@ struct BenchmarkStats
 };
 
 // =================================================================================================
-//     Timing histogram helpers  (1-2-5 per decade)
+//     Timing histogram helpers
 // =================================================================================================
 
-// Bucket 0 : [0, 1 µs)
-// Bucket 1 : [1 µs,  2 µs)   ← first 1-2-5 triplet
-// Bucket 2 : [2 µs,  5 µs)
-// Bucket 3 : [5 µs, 10 µs)
-// Bucket 4 : [10 µs, 20 µs)  ← second triplet
-// … and so on.
+// 10 uniform sub-buckets per decade on a log10 scale, starting at 1 ns.
+// Bucket 0 is reserved for ns=0 (should not occur in practice).
+// Bucket b covers [10^((b-1)/10), 10^(b/10)) ns  for b >= 1.
 inline size_t timing_bucket( uint64_t ns )
 {
-    if( ns < 1000 ) return 0;
-    // Walk decades starting at 1 µs = 1000 ns; each decade has 3 sub-buckets (×1, ×2, ×5).
-    uint64_t lo = 1000;
-    size_t   base = 1;
-    while( true ) {
-        if( ns < lo * 2  ) return base;
-        if( ns < lo * 5  ) return base + 1;
-        if( ns < lo * 10 ) return base + 2;
-        lo   *= 10;
-        base += 3;
-    }
+    if( ns == 0 ) return 0;
+    return static_cast<size_t>( std::floor( 10.0 * std::log10( static_cast<double>(ns) ) ) ) + 1;
 }
 
-// Returns [low_ns, high_ns) for the given bucket index.
+// Returns [low_ns, high_ns) for the given bucket index (approximate integer bounds).
 inline std::pair<uint64_t, uint64_t> timing_bucket_bounds( size_t bucket )
 {
-    if( bucket == 0 ) return { 0, 1000 };
-    size_t const b      = bucket - 1;
-    size_t const decade = b / 3;
-    size_t const sub    = b % 3;                            // 0 → ×1, 1 → ×2, 2 → ×5
-    uint64_t lo_ns = 1000;
-    for( size_t i = 0; i < decade; ++i ) lo_ns *= 10;
-    static constexpr uint64_t mult[3]      = { 1, 2, 5 };
-    static constexpr uint64_t next_mult[3] = { 2, 5, 10 };
-    return { lo_ns * mult[sub], lo_ns * next_mult[sub] };
+    if( bucket == 0 ) return { 0, 1 };
+    size_t const b  = bucket - 1;
+    uint64_t const lo = static_cast<uint64_t>( std::pow( 10.0, b / 10.0 ) );
+    uint64_t const hi = static_cast<uint64_t>( std::ceil( std::pow( 10.0, (b + 1) / 10.0 ) ) );
+    return { lo, std::max( hi, lo + 1 ) };
 }
 
 inline std::string timing_bucket_label( size_t bucket )
@@ -158,8 +143,10 @@ inline void accumulate_align_result(
     }
 
     ++stats.successful_alignments;
-    ++stats.start_offset_hist[ result.start - true_start_in_window ];
-    ++stats.end_offset_hist[   result.end   - true_end_in_window   ];
+    if( result.has_start ) {
+        ++stats.start_offset_hist[ result.start - true_start_in_window ];
+    }
+    ++stats.end_offset_hist[ result.end - true_end_in_window ];
     ++stats.score_hist[ result.score ];
 }
 
@@ -318,9 +305,11 @@ inline void write_timing_csv(
         for( auto const& [name, s] : stats[i] ) {
             for( size_t b = 0; b < s.timing_hist.size(); ++b ) {
                 if( s.timing_hist[b] == 0 ) continue;
-                auto const [lo, hi] = timing_bucket_bounds( b );
+                // Use exact double bounds so the Python midpoint (sqrt(lo*hi)) is accurate.
+                double const lo_d = (b == 0) ? 0.0 : std::pow( 10.0, (b - 1) / 10.0 );
+                double const hi_d = std::pow( 10.0, b / 10.0 );
                 csv_grid_prefix( f, i, grid[i] );
-                f << name << "," << lo << "," << hi << "," << s.timing_hist[b] << "\n";
+                f << name << "," << lo_d << "," << hi_d << "," << s.timing_hist[b] << "\n";
             }
         }
     }

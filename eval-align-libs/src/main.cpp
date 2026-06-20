@@ -125,7 +125,7 @@ int main( int argc, char** argv )
     // parasail variants test three orthogonal axes:
     //   Matrix  : custom (match=+2 / mismatch=-4 / N=0, same as ksw2 for direct comparison)
     //             vs dnafull (IUPAC-aware built-in matrix, for real-data N handling)
-    //   Approach: loc   = location only via reverse trick, no CIGAR (like ksw2)
+    //   Approach: score = single forward pass, score + end only (has_start = false)
     //             cigar = single pass with traceback, gives CIGAR and exact start/end directly
     //   Timing  : cold = profile creation + alignment (first time seeing this query)
     //             hot  = alignment only (profile already built, models repeated use)
@@ -133,15 +133,16 @@ int main( int argc, char** argv )
     for( size_t i = 0; i < grid.size(); ++i ) {
         for( auto const& name : {
             "edlib",
-            "ksw2",
+            "ksw2-cigar",
+            "ksw2-score",
             "parasail-cigar-custom-cold",
             "parasail-cigar-custom-hot",
             "parasail-cigar-dnafull-cold",
             "parasail-cigar-dnafull-hot",
-            "parasail-loc-custom-cold",
-            "parasail-loc-custom-hot",
-            "parasail-loc-dnafull-cold",
-            "parasail-loc-dnafull-hot",
+            "parasail-score-custom-cold",
+            "parasail-score-custom-hot",
+            "parasail-score-dnafull-cold",
+            "parasail-score-dnafull-hot",
         }) {
             stats[i].emplace( name, BenchmarkStats( name ) );
         }
@@ -198,53 +199,50 @@ int main( int argc, char** argv )
             };
 
             // --- edlib (no hot/cold split — no precomputation) ---
-            time_align( [&]{ return align_edlib( mutated.forward, mutated.window ); }, "edlib" );
+            time_align( [&]{
+                return align_edlib( mutated.forward, mutated.window );
+            }, "edlib" );
 
-            // --- ksw2 (forward + reverse pass timed together as one fitting alignment) ---
-            time_align( [&]{ return align_ksw2( mutated.forward, mutated.window ); }, "ksw2" );
+            // --- ksw2 ---
+            time_align( [&]{
+                return align_ksw2_score( mutated.forward, mutated.window );
+            }, "ksw2-score" );
+            time_align( [&]{
+                return align_ksw2_cigar( mutated.forward, mutated.window );
+            }, "ksw2-cigar" );
 
             // --- parasail ---
-            // Reversed query shared across all parasail variants (matrix-independent).
-            std::string const rev_q( mutated.forward.crbegin(), mutated.forward.crend() );
-
-            // loc-custom: reverse trick, custom scoring matrix (match=+2/mismatch=-4/N=0)
+            // score-custom: single forward pass, custom scoring matrix (match=+2/mismatch=-4/N=0)
             {
-                // hot: profiles pre-built, only alignment timed
+                // hot: profile pre-built, only alignment timed
                 auto* pf = parasail_make_profile( mutated.forward, mat_custom );
-                auto* pr = parasail_make_profile( rev_q,           mat_custom );
-                time_align( [&]{ return align_parasail_loc( pf, pr, mutated.window ); },
-                         "parasail-loc-custom-hot" );
+                time_align( [&]{
+                    return align_parasail_score( pf, mutated.window );
+                }, "parasail-score-custom-hot" );
                 parasail_profile_free( pf );
-                parasail_profile_free( pr );
 
                 // cold: profile creation + alignment timed together
                 time_align( [&]{
-                    auto* p1 = parasail_make_profile( mutated.forward, mat_custom );
-                    auto* p2 = parasail_make_profile( rev_q,           mat_custom );
-                    auto r   = align_parasail_loc( p1, p2, mutated.window );
-                    parasail_profile_free( p1 );
-                    parasail_profile_free( p2 );
+                    auto* p = parasail_make_profile( mutated.forward, mat_custom );
+                    auto r  = align_parasail_score( p, mutated.window );
+                    parasail_profile_free( p );
                     return r;
-                }, "parasail-loc-custom-cold" );
+                }, "parasail-score-custom-cold" );
             }
 
-            // loc-dnafull: reverse trick, IUPAC-aware DNAfull matrix
+            // score-dnafull: single forward pass, IUPAC-aware DNAfull matrix
             {
                 auto* pf = parasail_make_profile( mutated.forward, mat_dnafull );
-                auto* pr = parasail_make_profile( rev_q,           mat_dnafull );
-                time_align( [&]{ return align_parasail_loc( pf, pr, mutated.window ); },
-                         "parasail-loc-dnafull-hot" );
+                time_align( [&]{ return align_parasail_score( pf, mutated.window ); },
+                         "parasail-score-dnafull-hot" );
                 parasail_profile_free( pf );
-                parasail_profile_free( pr );
 
                 time_align( [&]{
-                    auto* p1 = parasail_make_profile( mutated.forward, mat_dnafull );
-                    auto* p2 = parasail_make_profile( rev_q,           mat_dnafull );
-                    auto r   = align_parasail_loc( p1, p2, mutated.window );
-                    parasail_profile_free( p1 );
-                    parasail_profile_free( p2 );
+                    auto* p = parasail_make_profile( mutated.forward, mat_dnafull );
+                    auto r  = align_parasail_score( p, mutated.window );
+                    parasail_profile_free( p );
                     return r;
-                }, "parasail-loc-dnafull-cold" );
+                }, "parasail-score-dnafull-cold" );
             }
 
             // cigar-custom: single traceback pass, beg_ref from cigar struct, custom matrix

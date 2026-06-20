@@ -6,27 +6,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-# Color groups: edlib=red, ksw2=orange, ps-loc-custom=blue, ps-loc-dnafull=navy,
+# Color groups: edlib=red, ksw2=orange, ps-score-custom=blue, ps-score-dnafull=navy,
 #               ps-cigar-custom=green, ps-cigar-dnafull=darkgreen.
-# Linestyle: solid=hot (or no hot/cold split), dashed=cold.
+# Linestyle: solid=full alignment (cigar/has_start), dashed=score-only or cold.
+# For ksw2 (no hot/cold): solid=cigar, dashed=score.
+# For parasail: solid=hot, dashed=cold (within each score/cigar group).
 ALIGNER_STYLE = {
     "edlib": {
         "color": "#c0392b", "ls": "-", "label": "edlib",
     },
-    "ksw2": {
-        "color": "#e67e22", "ls": "-", "label": "ksw2",
+    "ksw2-score": {
+        "color": "#e67e22", "ls": "--", "label": "ksw2-score",
     },
-    "parasail-loc-custom-hot": {
-        "color": "#2980b9", "ls": "-", "label": "ps-loc-custom (hot)",
+    "ksw2-cigar": {
+        "color": "#e67e22", "ls": "-", "label": "ksw2-cigar",
     },
-    "parasail-loc-custom-cold": {
-        "color": "#2980b9", "ls": "--", "label": "ps-loc-custom (cold)",
+    "parasail-score-custom-hot": {
+        "color": "#2980b9", "ls": "-", "label": "ps-score-custom (hot)",
     },
-    "parasail-loc-dnafull-hot": {
-        "color": "#1a5276", "ls": "-", "label": "ps-loc-dnafull (hot)",
+    "parasail-score-custom-cold": {
+        "color": "#2980b9", "ls": "--", "label": "ps-score-custom (cold)",
     },
-    "parasail-loc-dnafull-cold": {
-        "color": "#1a5276", "ls": "--", "label": "ps-loc-dnafull (cold)",
+    "parasail-score-dnafull-hot": {
+        "color": "#1a5276", "ls": "-", "label": "ps-score-dnafull (hot)",
+    },
+    "parasail-score-dnafull-cold": {
+        "color": "#1a5276", "ls": "--", "label": "ps-score-dnafull (cold)",
     },
     "parasail-cigar-custom-hot": {
         "color": "#27ae60", "ls": "-", "label": "ps-cigar-custom (hot)",

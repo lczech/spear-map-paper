@@ -43,7 +43,7 @@ extern "C" {
 // SIMD width and fallback selected automatically at runtime via _sat (8-bit with 16-bit retry).
 //
 // Two alignment variants:
-//   loc   — reverse trick (two sg_dx passes), no CIGAR, start derived from second pass
+//   score — single sg_dx pass, score + end position only (has_start = false)
 //   cigar — single sg_dx_trace pass; beg_ref/end_ref read from parasail_cigar_t directly
 //
 // Each function takes pre-built profile(s).  Cold/hot timing split is handled in main:
@@ -78,48 +78,34 @@ inline parasail_profile_t* parasail_make_profile(
 }
 
 // =================================================================================================
-//     Location-only alignment (reverse trick, no CIGAR)
+//     Score-only alignment (single forward pass, no CIGAR, no start position)
 // =================================================================================================
 
-// pf = profile of the forward query, pr = profile of the reversed query.
-// Forward pass → end_ref; reverse pass on rev(target[0..end_ref]) → start_ref.
-inline AlignResult align_parasail_loc(
+// pf = profile of the forward query.
+// Single sg_dx pass gives score and end_ref; start is not computed (has_start = false).
+inline AlignResult align_parasail_score(
     parasail_profile_t* pf,
-    parasail_profile_t* pr,
     std::string const& target
 ) {
     int const tlen = static_cast<int>( target.size() );
 
-    // Forward pass
-    parasail_result_t* rf = parasail_sg_dx_striped_profile_sat(
+    parasail_result_t* r = parasail_sg_dx_striped_profile_sat(
         pf, target.c_str(), tlen, 4, 2
     );
-    if( !rf ) return AlignResult{ 0, 0, 0, true };
+    if( !r ) return AlignResult{ 0, 0, 0, true };
 
-    int const end_t = rf->end_ref;
-    int const score = rf->score;
-    parasail_result_free( rf );
+    int const end_t = r->end_ref;
+    int const score = r->score;
+    parasail_result_free( r );
 
     if( end_t < 0 ) return AlignResult{ 0, 0, 0, true };
 
-    // Reverse pass: rev(query) vs reverse(target[0..end_t])
-    int const rev_tlen = end_t + 1;
-    std::string const rev_target(
-        target.crbegin() + ( tlen - 1 - end_t ),
-        target.crend()
-    );
-
-    parasail_result_t* rr = parasail_sg_dx_striped_profile_sat(
-        pr, rev_target.c_str(), rev_tlen, 4, 2
-    );
-    int const start_t = ( rr && rr->end_ref >= 0 ) ? ( end_t - rr->end_ref ) : 0;
-    if( rr ) parasail_result_free( rr );
-
     return AlignResult{
-        start_t,      // 0-based inclusive start in target
-        end_t + 1,    // 0-based exclusive end   in target (edlib convention)
+        0,            // start: not computed
+        end_t + 1,    // 0-based exclusive end in target
         score,
-        false
+        false,
+        false         // has_start = false
     };
 }
 
