@@ -69,8 +69,7 @@ def setup_style():
 
 def grid_label(row):
     return (
-        f"sub={row.sub_rate:.3f}  indel={row.indel_rate:.3f}\n"
-        f"dmg={row.damage_rate:.3f}"
+        f"sub={row.sub_rate:.3f}  indel={row.indel_rate:.3f}  dmg={row.damage_rate:.3f}"
     )
 
 

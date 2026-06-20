@@ -166,6 +166,10 @@ int main( int argc, char** argv )
         }
     }
 
+    // Parallel per-read-length breakdown: grid → aligner → mutated_read_len → stats.
+    // Inner maps grow dynamically as new lengths are seen; existing totals above are unchanged.
+    std::vector<std::map<std::string, std::map<size_t, BenchmarkStats>>> per_len_stats( grid.size() );
+
     size_t total_reads      = 0;
     size_t filtered_reads   = 0;
     size_t chromosomes_seen = 0;
@@ -214,6 +218,7 @@ int main( int argc, char** argv )
                     std::chrono::duration_cast<std::chrono::nanoseconds>( t1 - t0 ).count()
                 );
                 accumulate_align_result( stats[i][key], result, ns, true_start, true_end );
+                accumulate_align_result( per_len_stats[i][key][len], result, ns, true_start, true_end );
             };
 
             // --- edlib (no hot/cold split — no precomputation) ---
@@ -333,7 +338,7 @@ int main( int argc, char** argv )
     //     }
     // }
 
-    write_all_csvs( BENCH_DIR, grid, length_hists, stats, window_hist );
+    write_all_csvs( BENCH_DIR, grid, length_hists, stats, per_len_stats, window_hist );
 
     return 0;
 }

@@ -378,6 +378,101 @@ inline void write_summary_csv(
     }
 }
 
+// Per-read-length variants: same schema as the total writers but with a read_len column added.
+
+inline void write_timing_by_len_csv(
+    std::string const& path,
+    std::vector<MutateParams> const& grid,
+    std::vector<std::map<std::string, std::map<size_t, BenchmarkStats>>> const& per_len_stats
+) {
+    std::ofstream f( path );
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,"
+         "read_len,aligner,bucket_low_ns,bucket_high_ns,count\n";
+    for( size_t i = 0; i < grid.size(); ++i ) {
+        for( auto const& [name, by_len] : per_len_stats[i] ) {
+            for( auto const& [len, s] : by_len ) {
+                for( size_t b = 0; b < s.timing_hist.size(); ++b ) {
+                    if( s.timing_hist[b] == 0 ) continue;
+                    double const lo_d = (b == 0) ? 0.0 : std::pow( 10.0, (b - 1) / 10.0 );
+                    double const hi_d = std::pow( 10.0, b / 10.0 );
+                    csv_grid_prefix( f, i, grid[i] );
+                    f << len << "," << name << "," << lo_d << "," << hi_d << "," << s.timing_hist[b] << "\n";
+                }
+            }
+        }
+    }
+}
+
+inline void write_offsets_by_len_csv(
+    std::string const& path,
+    std::vector<MutateParams> const& grid,
+    std::vector<std::map<std::string, std::map<size_t, BenchmarkStats>>> const& per_len_stats
+) {
+    std::ofstream f( path );
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,"
+         "read_len,aligner,offset_bp,start_count,end_count\n";
+    for( size_t i = 0; i < grid.size(); ++i ) {
+        for( auto const& [name, by_len] : per_len_stats[i] ) {
+            for( auto const& [len, s] : by_len ) {
+                std::set<int32_t> keys;
+                for( auto const& [k, _] : s.start_offset_hist ) keys.insert( k );
+                for( auto const& [k, _] : s.end_offset_hist   ) keys.insert( k );
+                for( int32_t k : keys ) {
+                    auto const si = s.start_offset_hist.find( k );
+                    auto const ei = s.end_offset_hist.find( k );
+                    size_t const sc = ( si != s.start_offset_hist.end() ) ? si->second : 0;
+                    size_t const ec = ( ei != s.end_offset_hist.end()   ) ? ei->second : 0;
+                    csv_grid_prefix( f, i, grid[i] );
+                    f << len << "," << name << "," << k << "," << sc << "," << ec << "\n";
+                }
+            }
+        }
+    }
+}
+
+inline void write_scores_by_len_csv(
+    std::string const& path,
+    std::vector<MutateParams> const& grid,
+    std::vector<std::map<std::string, std::map<size_t, BenchmarkStats>>> const& per_len_stats
+) {
+    std::ofstream f( path );
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,"
+         "read_len,aligner,score,count\n";
+    for( size_t i = 0; i < grid.size(); ++i ) {
+        for( auto const& [name, by_len] : per_len_stats[i] ) {
+            for( auto const& [len, s] : by_len ) {
+                for( auto const& [score, count] : s.score_hist ) {
+                    csv_grid_prefix( f, i, grid[i] );
+                    f << len << "," << name << "," << score << "," << count << "\n";
+                }
+            }
+        }
+    }
+}
+
+inline void write_summary_by_len_csv(
+    std::string const& path,
+    std::vector<MutateParams> const& grid,
+    std::vector<std::map<std::string, std::map<size_t, BenchmarkStats>>> const& per_len_stats
+) {
+    std::ofstream f( path );
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,"
+         "read_len,aligner,successful,failed,total_ns,mean_ns,min_ns,max_ns\n";
+    for( size_t i = 0; i < grid.size(); ++i ) {
+        for( auto const& [name, by_len] : per_len_stats[i] ) {
+            for( auto const& [len, s] : by_len ) {
+                size_t const   total   = s.successful_alignments + s.failed_alignments;
+                uint64_t const mean_ns = total > 0 ? s.total_ns / total : 0;
+                uint64_t const min_ns  = ( s.min_ns == std::numeric_limits<uint64_t>::max() ) ? 0 : s.min_ns;
+                csv_grid_prefix( f, i, grid[i] );
+                f << len << "," << name << ","
+                  << s.successful_alignments << "," << s.failed_alignments << ","
+                  << s.total_ns << "," << mean_ns << "," << min_ns << "," << s.max_ns << "\n";
+            }
+        }
+    }
+}
+
 inline void write_windows_csv(
     std::string const& path,
     std::map<size_t, size_t> const& window_hist
@@ -394,6 +489,7 @@ inline void write_all_csvs(
     std::vector<MutateParams> const& grid,
     std::vector<std::vector<size_t>> const& length_hists,
     std::vector<std::map<std::string, BenchmarkStats>> const& stats,
+    std::vector<std::map<std::string, std::map<size_t, BenchmarkStats>>> const& per_len_stats,
     std::map<size_t, size_t> const& window_hist
 ) {
     std::filesystem::create_directories( bench_dir );
@@ -403,5 +499,9 @@ inline void write_all_csvs(
     write_scores_csv(  bench_dir + "/scores.csv",  grid, stats        );
     write_summary_csv( bench_dir + "/summary.csv", grid, stats        );
     write_windows_csv( bench_dir + "/windows.csv", window_hist        );
+    write_timing_by_len_csv(  bench_dir + "/timing_by_len.csv",  grid, per_len_stats );
+    write_offsets_by_len_csv( bench_dir + "/offsets_by_len.csv", grid, per_len_stats );
+    write_scores_by_len_csv(  bench_dir + "/scores_by_len.csv",  grid, per_len_stats );
+    write_summary_by_len_csv( bench_dir + "/summary_by_len.csv", grid, per_len_stats );
     std::cout << "\nCSV output written to: " << bench_dir << "/\n";
 }
