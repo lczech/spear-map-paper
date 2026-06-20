@@ -75,8 +75,12 @@ inline wavefront_aligner_t* make_wfa2_aligner( alignment_scope_t scope, bool heu
 
     wavefront_aligner_t* wf = wavefront_aligner_new( &attrs );
 
+    // wavefront_aligner_attr_default has wf_heuristic_wfadaptive enabled; clear it
+    // explicitly for exact runs rather than relying on the default being neutral.
     if( heuristic ) {
         wavefront_aligner_set_heuristic_wfadaptive( wf, 10, 50, 1 );
+    } else {
+        wavefront_aligner_set_heuristic_none( wf );
     }
 
     return wf;

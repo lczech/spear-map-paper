@@ -230,7 +230,6 @@ inline void print_param_header( MutateParams const& params, std::vector<size_t> 
         << "  indel=" << params.indel_rate
         << "  mean_len=" << params.indel_mean_len
         << "  dmg=" << params.damage_rate
-        << "  lambda=" << params.decay_lambda
         << "\n";
     // Length histogram — written to lengths.csv instead
     // print_length_hist( length_hist );
@@ -273,8 +272,7 @@ inline void csv_grid_prefix( std::ofstream& f, size_t grid_idx, MutateParams con
       << p.sub_rate       << ","
       << p.indel_rate     << ","
       << p.indel_mean_len << ","
-      << p.damage_rate    << ","
-      << p.decay_lambda   << ",";
+      << p.damage_rate    << ",";
 }
 
 inline void write_lengths_csv(
@@ -283,7 +281,7 @@ inline void write_lengths_csv(
     std::vector<std::vector<size_t>> const& length_hists
 ) {
     std::ofstream f( path );
-    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,decay_lambda,length_bp,count\n";
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,length_bp,count\n";
     for( size_t i = 0; i < grid.size(); ++i ) {
         for( size_t len = 0; len < length_hists[i].size(); ++len ) {
             if( length_hists[i][len] == 0 ) continue;
@@ -299,7 +297,7 @@ inline void write_timing_csv(
     std::vector<std::map<std::string, BenchmarkStats>> const& stats
 ) {
     std::ofstream f( path );
-    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,decay_lambda,"
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,"
          "aligner,bucket_low_ns,bucket_high_ns,count\n";
     for( size_t i = 0; i < grid.size(); ++i ) {
         for( auto const& [name, s] : stats[i] ) {
@@ -321,7 +319,7 @@ inline void write_offsets_csv(
     std::vector<std::map<std::string, BenchmarkStats>> const& stats
 ) {
     std::ofstream f( path );
-    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,decay_lambda,"
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,"
          "aligner,offset_bp,start_count,end_count\n";
     for( size_t i = 0; i < grid.size(); ++i ) {
         for( auto const& [name, s] : stats[i] ) {
@@ -347,7 +345,7 @@ inline void write_scores_csv(
     std::vector<std::map<std::string, BenchmarkStats>> const& stats
 ) {
     std::ofstream f( path );
-    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,decay_lambda,"
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,"
          "aligner,score,count\n";
     for( size_t i = 0; i < grid.size(); ++i ) {
         for( auto const& [name, s] : stats[i] ) {
@@ -365,7 +363,7 @@ inline void write_summary_csv(
     std::vector<std::map<std::string, BenchmarkStats>> const& stats
 ) {
     std::ofstream f( path );
-    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,decay_lambda,"
+    f << "grid_idx,sub_rate,indel_rate,indel_mean_len,damage_rate,"
          "aligner,successful,failed,total_ns,mean_ns,min_ns,max_ns\n";
     for( size_t i = 0; i < grid.size(); ++i ) {
         for( auto const& [name, s] : stats[i] ) {

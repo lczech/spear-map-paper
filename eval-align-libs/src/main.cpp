@@ -94,14 +94,21 @@ int main( int argc, char** argv )
     // Each entry defines one combination of divergence + damage to benchmark.
     // sub_rate and indel_rate model evolutionary divergence from the reference.
     // damage_rate models aDNA deamination (C→T at 5', G→A at 3').
+    // decay_lambda is fixed at 0.3 (struct default) and not varied here.
     std::vector<MutateParams> const grid = {
-        // sub_rate indel_rate indel_mean_len damage_rate decay_lambda
-        {  0.00,    0.00,      1.5,           0.00,       0.3  }, // clean baseline
-        {  0.05,    0.00,      1.5,           0.00,       0.3  }, // 5% divergence only
-        {  0.10,    0.00,      1.5,           0.00,       0.3  }, // 10% divergence only
-        {  0.05,    0.02,      1.5,           0.00,       0.3  }, // div + indels
-        {  0.05,    0.00,      1.5,           0.10,       0.3  }, // div + damage
-        {  0.05,    0.02,      1.5,           0.10,       0.3  }, // div + indels + damage
+        // sub_rate  indel_rate  indel_mean_len  damage_rate
+        {  0.00,     0.00,       1.5,            0.00  },  // clean baseline
+        {  0.05,     0.00,       1.5,            0.00  },  // 5% divergence only
+        {  0.10,     0.00,       1.5,            0.00  },  // 10% divergence only
+        {  0.05,     0.02,       1.5,            0.00  },  // divergence + indels
+        {  0.05,     0.00,       1.5,            0.20  },  // mild damage
+        {  0.05,     0.02,       1.5,            0.20  },  // divergence + indels + mild damage
+        {  0.20,     0.00,       1.5,            0.00  },  // genus-level divergence
+        {  0.30,     0.00,       1.5,            0.00  },  // family-level divergence
+        {  0.05,     0.00,       1.5,            0.40  },  // high damage
+        {  0.05,     0.00,       1.5,            0.80  },  // extreme damage (million-year regime)
+        {  0.20,     0.03,       1.5,            0.40  },  // old eDNA: high div + indels + damage
+        {  0.30,     0.05,       1.5,            0.80  },  // absolute stress test
     };
 
     // -------------------------------------------------------------------------
@@ -302,6 +309,14 @@ int main( int argc, char** argv )
 
         }
     }
+
+    // Clean up
+    parasail_matrix_free( mat_custom );
+    wavefront_aligner_delete( wf_score_exact     );
+    wavefront_aligner_delete( wf_score_heuristic );
+    wavefront_aligner_delete( wf_cigar_exact     );
+    wavefront_aligner_delete( wf_cigar_heuristic );
+
     LOG_MSG << "Finished processing";
 
     // -------------------------------------------------------------------------
@@ -310,19 +325,15 @@ int main( int argc, char** argv )
 
     print_global_stats( total_reads, filtered_reads, window_hist );
 
-    for( size_t i = 0; i < grid.size(); ++i ) {
-        print_param_header( grid[i], length_hists[i] );
-        for( auto const& [name, s] : stats[i] ) {
-            print_stats( s );
-        }
-    }
+    // Deactivated for now.
+    // for( size_t i = 0; i < grid.size(); ++i ) {
+    //     print_param_header( grid[i], length_hists[i] );
+    //     for( auto const& [name, s] : stats[i] ) {
+    //         print_stats( s );
+    //     }
+    // }
 
     write_all_csvs( BENCH_DIR, grid, length_hists, stats, window_hist );
 
-    parasail_matrix_free( mat_custom );
-    wavefront_aligner_delete( wf_score_exact     );
-    wavefront_aligner_delete( wf_score_heuristic );
-    wavefront_aligner_delete( wf_cigar_exact     );
-    wavefront_aligner_delete( wf_cigar_heuristic );
     return 0;
 }
