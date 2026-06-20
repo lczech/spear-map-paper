@@ -10,3 +10,6 @@
 [submodule "deps/parasail"]
 	path = deps/parasail
 	url = https://github.com/jeffdaily/parasail.git
+[submodule "deps/wfa2"]
+	path = deps/wfa2
+	url = https://github.com/smarco/WFA2-lib.git

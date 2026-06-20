@@ -44,7 +44,7 @@ extern "C" {
 //
 // Two alignment variants:
 //   score — single sg_dx pass, score + end position only (has_start = false)
-//   cigar — single sg_dx_trace pass; beg_ref/end_ref read from parasail_cigar_t directly
+//   cigar — single sg_dx_trace pass; end_ref from result, beg_ref not used (always 0 in sg_dx)
 //
 // Each function takes pre-built profile(s).  Cold/hot timing split is handled in main:
 //   cold = profile creation + alignment (timed together)
@@ -114,7 +114,8 @@ inline AlignResult align_parasail_score(
 // =================================================================================================
 
 // pf = forward query profile. query and target strings are needed for parasail_result_get_cigar.
-// beg_ref is read directly from the cigar struct — no second pass required.
+// Start position is not computed (has_start = false): in sg_dx mode, beg_ref from the cigar
+// struct is always 0 because the CIGAR spans the whole reference with free leading D ops.
 inline AlignResult align_parasail_cigar(
     parasail_profile_t* pf,
     std::string const& query,
@@ -135,14 +136,14 @@ inline AlignResult align_parasail_cigar(
     parasail_cigar_t* cigar = parasail_result_get_cigar(
         r, query.c_str(), qlen, target.c_str(), tlen, matrix
     );
-    int const start_t = cigar ? cigar->beg_ref : 0;
     if( cigar ) parasail_cigar_free( cigar );
     parasail_result_free( r );
 
     return AlignResult{
-        start_t,
+        0,            // start: not computed (beg_ref is always 0 in sg_dx mode)
         end_t + 1,
         score,
-        false
+        false,
+        false         // has_start = false
     };
 }

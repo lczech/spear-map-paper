@@ -24,6 +24,7 @@
 #include "aligner_edlib.hpp"
 #include "aligner_ksw2.hpp"
 #include "aligner_parasail.hpp"
+#include "aligner_wfa2.hpp"
 #include "stats.hpp"
 #include "mutate.hpp"
 #include "shatter.hpp"
@@ -113,6 +114,12 @@ int main( int argc, char** argv )
     parasail_matrix_t*       mat_custom  = parasail_make_custom_matrix();
     parasail_matrix_t const* mat_dnafull = parasail_matrix_lookup( "dnafull" );
 
+    // WFA2 aligners created once and reused across all reads (models production use in Spear).
+    wavefront_aligner_t* wf_score_exact     = make_wfa2_aligner( compute_score,     false );
+    wavefront_aligner_t* wf_score_heuristic = make_wfa2_aligner( compute_score,     true  );
+    wavefront_aligner_t* wf_cigar_exact     = make_wfa2_aligner( compute_alignment, false );
+    wavefront_aligner_t* wf_cigar_heuristic = make_wfa2_aligner( compute_alignment, true  );
+
     std::mt19937_64 rng( 42 );
     std::vector<std::vector<size_t>> length_hists( grid.size() );
 
@@ -143,6 +150,10 @@ int main( int argc, char** argv )
             "parasail-score-custom-hot",
             "parasail-score-dnafull-cold",
             "parasail-score-dnafull-hot",
+            "wfa2-cigar-exact",
+            "wfa2-cigar-heuristic",
+            "wfa2-score-exact",
+            "wfa2-score-heuristic",
         }) {
             stats[i].emplace( name, BenchmarkStats( name ) );
         }
@@ -274,8 +285,24 @@ int main( int argc, char** argv )
                     return r;
                 }, "parasail-cigar-dnafull-cold" );
             }
+
+            // --- wfa2 ---
+            time_align( [&]{
+                return align_wfa2_score( wf_score_exact, mutated.forward, mutated.window );
+            }, "wfa2-score-exact" );
+            time_align( [&]{
+                return align_wfa2_score( wf_score_heuristic, mutated.forward, mutated.window );
+            }, "wfa2-score-heuristic" );
+            time_align( [&]{
+                return align_wfa2_cigar( wf_cigar_exact, mutated.forward, mutated.window );
+            }, "wfa2-cigar-exact" );
+            time_align( [&]{
+                return align_wfa2_cigar( wf_cigar_heuristic, mutated.forward, mutated.window );
+            }, "wfa2-cigar-heuristic" );
+
         }
     }
+    LOG_MSG << "Finished processing";
 
     // -------------------------------------------------------------------------
     //     Report
@@ -293,5 +320,9 @@ int main( int argc, char** argv )
     write_all_csvs( BENCH_DIR, grid, length_hists, stats, window_hist );
 
     parasail_matrix_free( mat_custom );
+    wavefront_aligner_delete( wf_score_exact     );
+    wavefront_aligner_delete( wf_score_heuristic );
+    wavefront_aligner_delete( wf_cigar_exact     );
+    wavefront_aligner_delete( wf_cigar_heuristic );
     return 0;
 }

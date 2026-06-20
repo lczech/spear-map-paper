@@ -164,6 +164,36 @@ else()
     )
 endif()
 
+# --- wfa2 --------------------------------------------------------------------
+
+set( wfa2_SUBMODULE_DIR "${DEPS_DIR}/wfa2" )
+message( STATUS "Looking for wfa2" )
+
+if( EXISTS "${wfa2_SUBMODULE_DIR}/wavefront/wavefront_align.h" )
+    message( STATUS "${ColorGreen}Found wfa2 submodule at ${wfa2_SUBMODULE_DIR}${ColorEnd}" )
+
+    # Build wfa2 directly from sources to avoid their CMakeLists.txt requiring pkg-config.
+    file( GLOB wfa2_SOURCES
+        "${wfa2_SUBMODULE_DIR}/wavefront/*.c"
+        "${wfa2_SUBMODULE_DIR}/alignment/*.c"
+        "${wfa2_SUBMODULE_DIR}/system/*.c"
+        "${wfa2_SUBMODULE_DIR}/utils/*.c"
+    )
+    add_library( wfa2_static STATIC ${wfa2_SOURCES} )
+    target_include_directories( wfa2_static SYSTEM PUBLIC
+        "${wfa2_SUBMODULE_DIR}"
+        "${wfa2_SUBMODULE_DIR}/wavefront"
+        "${wfa2_SUBMODULE_DIR}/utils"
+    )
+    target_compile_options( wfa2_static PRIVATE -w )  # suppress warnings in third-party code
+else()
+    message( FATAL_ERROR
+        "${ColorRed}wfa2 submodule not found at ${wfa2_SUBMODULE_DIR}. "
+        "From the spear-map-paper directory run:\n"
+        "  git submodule add https://github.com/smarco/WFA2-lib.git deps/wfa2${ColorEnd}"
+    )
+endif()
+
 # --- parasail ----------------------------------------------------------------
 
 set( parasail_SUBMODULE_DIR "${DEPS_DIR}/parasail" )
@@ -194,7 +224,7 @@ target_compile_definitions( eval-align-libs PRIVATE
     BENCH_DIR="${PROJECT_SOURCE_DIR}/benchmarks"
 )
 
-target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib ksw2 parasail )
+target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib ksw2 parasail wfa2_static )
 
 if( GENESIS_HAS_LTO )
     message( STATUS "Building with LTO/IPO support" )
