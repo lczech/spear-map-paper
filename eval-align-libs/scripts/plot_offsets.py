@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Start and end offset distributions for each aligner × mutation grid parameter set.
 
-Produces two PDFs: offsets_start.pdf and offsets_end.pdf.
-Each has a 2×3 subplot grid (one panel per grid parameter combination).
+Produces two combined PNGs (offsets_start.png, offsets_end.png) plus one pair of
+per-aligner PNGs (offsets_start_<aligner>.png, offsets_end_<aligner>.png) for
+detailed inspection without the clutter of overlapping lines.
 
 Usage (from eval-align-libs/):
     python scripts/plot_offsets.py [--benchmarks benchmarks]
@@ -12,6 +13,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -38,9 +40,17 @@ def plot_one_offset(df, count_col, title, figures, grid_ids, df_s):
             if adf.empty or adf[count_col].sum() == 0:
                 continue
 
+            # Fill missing integer offsets with NaN so the line breaks at gaps
+            # rather than drawing a false slope across them. NaN is required
+            # instead of 0 because log scale silently skips zero values.
+            counts = adf.set_index("offset_bp")[count_col].astype(float)
+            full_range = range(int(counts.index.min()), int(counts.index.max()) + 1)
+            counts = counts.reindex(full_range, fill_value=0.5)
+
             line, = ax.plot(
-                adf["offset_bp"], adf[count_col],
-                color=style["color"], ls=style["ls"], lw=1.5,
+                counts.index, counts.values,
+                color=style["color"], ls=style["ls"], lw=1.2,
+                marker="o", markersize=2, markeredgewidth=0,
                 label=style["label"],
             )
             if idx == 0:
@@ -48,6 +58,7 @@ def plot_one_offset(df, count_col, title, figures, grid_ids, df_s):
                 labels.append(style["label"])
 
         ax.axvline(0, color="black", lw=0.6, ls="-", alpha=0.4)
+        ax.set_yscale("log")
         ax.set_title(grid_label(grid_row), fontsize=8)
         ax.set_xlabel("offset (bp)")
         ax.set_ylabel("count")
@@ -55,6 +66,38 @@ def plot_one_offset(df, count_col, title, figures, grid_ids, df_s):
     hide_unused(axes, len(grid_ids), nrows, ncols)
     fig.suptitle(title, y=1.01, fontsize=11)
     legend_below(fig, handles, labels)
+    fig.tight_layout()
+    return fig
+
+
+def plot_per_aligner_offset(df, count_col, title_prefix, grid_ids, df_s, aligner, style):
+    """One figure for a single aligner: 2×3 grid of mutation-param panels, auto y-scale."""
+    setup_style()
+    fig, axes, nrows, ncols = make_grid_fig(len(grid_ids))
+
+    for idx, gid in enumerate(grid_ids):
+        ax       = axes[idx // ncols, idx % ncols]
+        adf      = df[(df["grid_idx"] == gid) & (df["aligner"] == aligner)].sort_values("offset_bp")
+        grid_row = df_s[df_s["grid_idx"] == gid].iloc[0]
+
+        if not adf.empty and adf[count_col].sum() > 0:
+            counts = adf.set_index("offset_bp")[count_col].astype(float)
+            full_range = range(int(counts.index.min()), int(counts.index.max()) + 1)
+            counts = counts.reindex(full_range, fill_value=0.5)
+            ax.plot(
+                counts.index, counts.values,
+                color=style["color"], ls=style["ls"], lw=1.2,
+                marker="o", markersize=2, markeredgewidth=0,
+            )
+            ax.axvline(0, color="black", lw=0.6, ls="-", alpha=0.4)
+            ax.set_yscale("log")
+
+        ax.set_title(grid_label(grid_row), fontsize=8)
+        ax.set_xlabel("offset (bp)")
+        ax.set_ylabel("count")
+
+    hide_unused(axes, len(grid_ids), nrows, ncols)
+    fig.suptitle(f"{title_prefix} — {style['label']}", y=1.01, fontsize=11)
     fig.tight_layout()
     return fig
 
@@ -73,14 +116,31 @@ def main():
     df_s   = pd.read_csv(bench / "summary.csv")
     grid_ids = sorted(df["grid_idx"].unique())
 
-    for count_col, label, fname in [
-        ("start_count", "Start offset distributions (aligner start − true start)", "offsets_start.pdf"),
-        ("end_count",   "End offset distributions (aligner end − true end)",        "offsets_end.pdf"),
+    for count_col, label, title_prefix, fname_prefix in [
+        ("start_count", "Start offset distributions (aligner start − true start)",
+         "Start offsets", "offsets_start"),
+        ("end_count",   "End offset distributions (aligner end − true end)",
+         "End offsets",   "offsets_end"),
     ]:
+        # Combined plot — all aligners overlaid
         fig = plot_one_offset(df, count_col, label, figures, grid_ids, df_s)
-        out = figures / fname
+        out = figures / f"{fname_prefix}.png"
         fig.savefig(out, bbox_inches="tight")
+        plt.close(fig)
         print(f"Written: {out}")
+
+        # Per-aligner plots — one PNG per aligner
+        for aligner, style in ALIGNER_STYLE.items():
+            if df[df["aligner"] == aligner][count_col].sum() == 0:
+                continue
+            fig = plot_per_aligner_offset(
+                df, count_col, title_prefix, grid_ids, df_s, aligner, style
+            )
+            safe_name = aligner.replace("/", "_")
+            out = figures / f"{fname_prefix}_{safe_name}.png"
+            fig.savefig(out, bbox_inches="tight")
+            plt.close(fig)
+            print(f"Written: {out}")
 
 
 if __name__ == "__main__":

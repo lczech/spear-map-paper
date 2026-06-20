@@ -14,6 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -113,8 +114,9 @@ def main():
     legend_below(fig, handles, labels)
     fig.tight_layout()
 
-    out = figures / "accuracy_vs_speed.pdf"
+    out = figures / "accuracy_vs_speed.png"
     fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
     print(f"Written: {out}")
 
 

@@ -7,10 +7,10 @@ import numpy as np
 
 
 # Color groups: edlib=red, ksw2=orange, ps-score-custom=blue, ps-score-dnafull=navy,
-#               ps-cigar-custom=green, ps-cigar-dnafull=darkgreen.
-# Linestyle: solid=full alignment (cigar/has_start), dashed=score-only or cold.
-# For ksw2 (no hot/cold): solid=cigar, dashed=score.
-# For parasail: solid=hot, dashed=cold (within each score/cigar group).
+#               ps-cigar-custom=green, ps-cigar-dnafull=darkgreen,
+#               wfa2-score=dark purple, wfa2-cigar=medium purple.
+# Linestyle: solid=exact, dashed=heuristic (for wfa2); solid=hot, dashed=cold (for parasail);
+#            solid=cigar, dashed=score (for ksw2).
 ALIGNER_STYLE = {
     "edlib": {
         "color": "#c0392b", "ls": "-", "label": "edlib",
@@ -45,6 +45,18 @@ ALIGNER_STYLE = {
     "parasail-cigar-dnafull-cold": {
         "color": "#1e8449", "ls": "--", "label": "ps-cigar-dnafull (cold)",
     },
+    "wfa2-score-exact": {
+        "color": "#7d3c98", "ls": "-",  "label": "wfa2-score-exact",
+    },
+    "wfa2-score-heuristic": {
+        "color": "#7d3c98", "ls": "--", "label": "wfa2-score-heuristic",
+    },
+    "wfa2-cigar-exact": {
+        "color": "#a569bd", "ls": "-",  "label": "wfa2-cigar-exact",
+    },
+    "wfa2-cigar-heuristic": {
+        "color": "#a569bd", "ls": "--", "label": "wfa2-cigar-heuristic",
+    },
 }
 
 
@@ -58,12 +70,12 @@ def setup_style():
 def grid_label(row):
     return (
         f"sub={row.sub_rate:.3f}  indel={row.indel_rate:.3f}\n"
-        f"dmg={row.damage_rate:.3f}  λ={row.decay_lambda:.3f}"
+        f"dmg={row.damage_rate:.3f}"
     )
 
 
 def make_grid_fig(n_panels, ncols=3, panel_w=4.0, panel_h=3.5):
-    """Create a figure with a 2×ncols subplot grid for n_panels panels."""
+    """Create a figure with ceil(n_panels/ncols) rows × ncols subplot grid."""
     nrows = (n_panels + ncols - 1) // ncols
     fig, axes = plt.subplots(
         nrows, ncols,
