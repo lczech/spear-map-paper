@@ -11,6 +11,14 @@ import numpy as np
 #               wfa2-score=dark purple, wfa2-cigar=medium purple.
 # Linestyle: solid=exact, dashed=heuristic (for wfa2); solid=hot, dashed=cold (for parasail);
 #            solid=cigar, dashed=score (for ksw2).
+REDUCED_ALIGNERS = [
+    "edlib",
+    "parasail-cigar-custom-hot",
+    "parasail-cigar-dnafull-hot",
+    "parasail-cigar-damage-hot",
+    "wfa2-cigar-exact",
+]
+
 ALIGNER_STYLE = {
     "edlib": {
         "color": "#c0392b", "ls": "-", "label": "edlib",

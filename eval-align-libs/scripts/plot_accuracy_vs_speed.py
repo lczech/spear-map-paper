@@ -20,7 +20,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_utils import (
-    ALIGNER_STYLE, setup_style, grid_label,
+    ALIGNER_STYLE, REDUCED_ALIGNERS, setup_style, grid_label,
     make_grid_fig, hide_unused, legend_below,
 )
 
@@ -66,58 +66,62 @@ def main():
         mae_df, on=["grid_idx", "aligner"]
     )
 
-    setup_style()
-    grid_ids = sorted(merged["grid_idx"].unique())
-    fig, axes, nrows, ncols = make_grid_fig(len(grid_ids))
+    def make_plot(style_dict, out_path):
+        setup_style()
+        grid_ids = sorted(merged["grid_idx"].unique())
+        fig, axes, nrows, ncols = make_grid_fig(len(grid_ids))
 
-    handles, labels = [], []
+        handles, labels = [], []
 
-    for idx, gid in enumerate(grid_ids):
-        ax       = axes[idx // ncols, idx % ncols]
-        sub      = merged[merged["grid_idx"] == gid]
-        grid_row = df_s[df_s["grid_idx"] == gid].iloc[0]
+        for idx, gid in enumerate(grid_ids):
+            ax       = axes[idx // ncols, idx % ncols]
+            sub      = merged[merged["grid_idx"] == gid]
+            grid_row = df_s[df_s["grid_idx"] == gid].iloc[0]
 
-        for aligner, style in ALIGNER_STYLE.items():
-            row = sub[sub["aligner"] == aligner]
-            if row.empty:
-                continue
+            for aligner, style in style_dict.items():
+                row = sub[sub["aligner"] == aligner]
+                if row.empty:
+                    continue
 
-            x = row["mean_ns"].values[0]
-            y = row["mae"].values[0]
+                x = row["mean_ns"].values[0]
+                y = row["mae"].values[0]
 
-            marker = "o" if style["ls"] == "-" else "^"
-            sc = ax.scatter(
-                x, y,
-                color=style["color"],
-                marker=marker,
-                s=60,
-                zorder=3,
-                label=style["label"],
-            )
-            if idx == 0:
-                handles.append(sc)
-                labels.append(style["label"])
+                marker = "o" if style["ls"] == "-" else "^"
+                sc = ax.scatter(
+                    x, y,
+                    color=style["color"],
+                    marker=marker,
+                    s=60,
+                    zorder=3,
+                    label=style["label"],
+                )
+                if idx == 0:
+                    handles.append(sc)
+                    labels.append(style["label"])
 
-            ax.annotate(
-                style["label"].replace("ps-", ""),
-                (x, y), fontsize=5, ha="left", va="bottom",
-                xytext=(3, 3), textcoords="offset points",
-            )
+                ax.annotate(
+                    style["label"].replace("ps-", ""),
+                    (x, y), fontsize=5, ha="left", va="bottom",
+                    xytext=(3, 3), textcoords="offset points",
+                )
 
-        ax.set_xscale("log")
-        ax.set_title(grid_label(grid_row), fontsize=8)
-        ax.set_xlabel("mean time (ns)")
-        ax.set_ylabel("mean absolute offset (bp)")
+            ax.set_xscale("log")
+            ax.set_title(grid_label(grid_row), fontsize=8)
+            ax.set_xlabel("mean time (ns)")
+            ax.set_ylabel("mean absolute offset (bp)")
 
-    hide_unused(axes, len(grid_ids), nrows, ncols)
-    fig.suptitle("Accuracy vs. speed  (lower-left = better)", y=1.01, fontsize=11)
-    legend_below(fig, handles, labels)
-    fig.tight_layout()
+        hide_unused(axes, len(grid_ids), nrows, ncols)
+        fig.suptitle("Accuracy vs. speed  (lower-left = better)", y=1.01, fontsize=11)
+        legend_below(fig, handles, labels)
+        fig.tight_layout()
+        fig.savefig(out_path, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Written: {out_path}")
 
-    out = figures / "accuracy_vs_speed.png"
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Written: {out}")
+    make_plot(ALIGNER_STYLE, figures / "accuracy_vs_speed.png")
+
+    reduced_style = {k: ALIGNER_STYLE[k] for k in REDUCED_ALIGNERS}
+    make_plot(reduced_style, figures / "accuracy_vs_speed_reduced.png")
 
 
 if __name__ == "__main__":

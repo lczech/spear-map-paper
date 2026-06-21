@@ -15,7 +15,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_utils import (
-    ALIGNER_STYLE, setup_style, grid_label,
+    ALIGNER_STYLE, REDUCED_ALIGNERS, setup_style, grid_label,
     make_grid_fig, hide_unused, legend_below,
 )
 
@@ -47,51 +47,55 @@ def main():
     # (grid_idx, aligner) → mean_ns for the vertical mean marker
     mean_ns = df_s.set_index(["grid_idx", "aligner"])["mean_ns"]
 
-    setup_style()
-    grid_ids = sorted(df_t["grid_idx"].unique())
-    fig, axes, nrows, ncols = make_grid_fig(len(grid_ids))
+    def make_plot(style_dict, out_path):
+        setup_style()
+        grid_ids = sorted(df_t["grid_idx"].unique())
+        fig, axes, nrows, ncols = make_grid_fig(len(grid_ids))
 
-    handles, labels = [], []
+        handles, labels = [], []
 
-    for idx, gid in enumerate(grid_ids):
-        ax       = axes[idx // ncols, idx % ncols]
-        sub      = df_t[df_t["grid_idx"] == gid]
-        grid_row = df_s[df_s["grid_idx"] == gid].iloc[0]
+        for idx, gid in enumerate(grid_ids):
+            ax       = axes[idx // ncols, idx % ncols]
+            sub      = df_t[df_t["grid_idx"] == gid]
+            grid_row = df_s[df_s["grid_idx"] == gid].iloc[0]
 
-        for aligner, style in ALIGNER_STYLE.items():
-            adf = sub[sub["aligner"] == aligner].sort_values("midpoint_us")
-            if adf.empty:
-                continue
+            for aligner, style in style_dict.items():
+                adf = sub[sub["aligner"] == aligner].sort_values("midpoint_us")
+                if adf.empty:
+                    continue
 
-            line, = ax.plot(
-                adf["midpoint_us"], adf["count"],
-                color=style["color"], ls=style["ls"], lw=1.5,
-                label=style["label"],
-            )
-            if idx == 0:
-                handles.append(line)
-                labels.append(style["label"])
+                line, = ax.plot(
+                    adf["midpoint_us"], adf["count"],
+                    color=style["color"], ls=style["ls"], lw=1.5,
+                    label=style["label"],
+                )
+                if idx == 0:
+                    handles.append(line)
+                    labels.append(style["label"])
 
-            # Dotted vertical line at the mean
-            key = (gid, aligner)
-            if key in mean_ns.index:
-                ax.axvline(mean_ns[key] / 1000, color=style["color"],
-                           ls=":", lw=0.8, alpha=0.5)
+                # Dotted vertical line at the mean
+                key = (gid, aligner)
+                if key in mean_ns.index:
+                    ax.axvline(mean_ns[key] / 1000, color=style["color"],
+                               ls=":", lw=0.8, alpha=0.5)
 
-        ax.set_xscale("log")
-        ax.set_title(grid_label(grid_row), fontsize=8)
-        ax.set_xlabel("time (µs)")
-        ax.set_ylabel("count")
+            ax.set_xscale("log")
+            ax.set_title(grid_label(grid_row), fontsize=8)
+            ax.set_xlabel("time (µs)")
+            ax.set_ylabel("count")
 
-    hide_unused(axes, len(grid_ids), nrows, ncols)
-    fig.suptitle("Alignment timing distributions", y=1.01, fontsize=11)
-    legend_below(fig, handles, labels)
-    fig.tight_layout()
+        hide_unused(axes, len(grid_ids), nrows, ncols)
+        fig.suptitle("Alignment timing distributions", y=1.01, fontsize=11)
+        legend_below(fig, handles, labels)
+        fig.tight_layout()
+        fig.savefig(out_path, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Written: {out_path}")
 
-    out = figures / "timing.png"
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Written: {out}")
+    make_plot(ALIGNER_STYLE, figures / "timing.png")
+
+    reduced_style = {k: ALIGNER_STYLE[k] for k in REDUCED_ALIGNERS}
+    make_plot(reduced_style, figures / "timing_reduced.png")
 
 
 if __name__ == "__main__":

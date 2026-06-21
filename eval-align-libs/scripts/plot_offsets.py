@@ -19,12 +19,14 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_utils import (
-    ALIGNER_STYLE, setup_style, grid_label,
+    ALIGNER_STYLE, REDUCED_ALIGNERS, setup_style, grid_label,
     make_grid_fig, hide_unused, legend_below,
 )
 
 
-def plot_one_offset(df, count_col, title, figures, grid_ids, df_s):
+def plot_one_offset(df, count_col, title, figures, grid_ids, df_s, style_dict=None):
+    if style_dict is None:
+        style_dict = ALIGNER_STYLE
     setup_style()
     fig, axes, nrows, ncols = make_grid_fig(len(grid_ids))
 
@@ -35,7 +37,7 @@ def plot_one_offset(df, count_col, title, figures, grid_ids, df_s):
         sub      = df[df["grid_idx"] == gid]
         grid_row = df_s[df_s["grid_idx"] == gid].iloc[0]
 
-        for aligner, style in ALIGNER_STYLE.items():
+        for aligner, style in style_dict.items():
             adf = sub[sub["aligner"] == aligner].sort_values("offset_bp")
             if adf.empty or adf[count_col].sum() == 0:
                 continue
@@ -125,6 +127,14 @@ def main():
         # Combined plot — all aligners overlaid
         fig = plot_one_offset(df, count_col, label, figures, grid_ids, df_s)
         out = figures / f"{fname_prefix}.png"
+        fig.savefig(out, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Written: {out}")
+
+        # Combined plot — reduced aligner set
+        reduced_style = {k: ALIGNER_STYLE[k] for k in REDUCED_ALIGNERS}
+        fig = plot_one_offset(df, count_col, label, figures, grid_ids, df_s, reduced_style)
+        out = figures / f"{fname_prefix}_reduced.png"
         fig.savefig(out, bbox_inches="tight")
         plt.close(fig)
         print(f"Written: {out}")
