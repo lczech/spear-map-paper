@@ -66,6 +66,22 @@ inline parasail_matrix_t* parasail_make_custom_matrix()
     return mat;
 }
 
+// 5-symbol ACGTN matrix: same as custom, but C→T and G→A cost 0 to model expected aDNA damage.
+// Matrix is indexed [query_char][ref_char]; damage events are query=T/ref=C and query=A/ref=G.
+// Caller owns the returned pointer; free with parasail_matrix_free().
+inline parasail_matrix_t* parasail_make_damage_matrix()
+{
+    // ACGTN indices: A=0, C=1, G=2, T=3, N=4
+    parasail_matrix_t* mat = parasail_matrix_create( "ACGTN", 2, -4 );
+    for( int j = 0; j < 5; ++j ) {
+        parasail_matrix_set_value( mat, 4, j, 0 );
+        parasail_matrix_set_value( mat, j, 4, 0 );
+    }
+    parasail_matrix_set_value( mat, 3, 1, 0 );  // query=T, ref=C: C→T deamination at 5' end
+    parasail_matrix_set_value( mat, 0, 2, 0 );  // query=A, ref=G: G→A deamination at 3' end
+    return mat;
+}
+
 // Convenience wrapper: build a sat profile from a string and a matrix.
 // Caller owns the returned pointer; free with parasail_profile_free().
 inline parasail_profile_t* parasail_make_profile(

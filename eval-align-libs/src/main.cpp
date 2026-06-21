@@ -119,6 +119,7 @@ int main( int argc, char** argv )
 
     // Parasail matrices initialised once; custom is mutable (freed below), dnafull is built-in.
     parasail_matrix_t*       mat_custom  = parasail_make_custom_matrix();
+    parasail_matrix_t*       mat_damage  = parasail_make_damage_matrix();
     parasail_matrix_t const* mat_dnafull = parasail_matrix_lookup( "dnafull" );
 
     // WFA2 aligners created once and reused across all reads (models production use in Spear).
@@ -153,6 +154,7 @@ int main( int argc, char** argv )
             "parasail-cigar-custom-hot",
             "parasail-cigar-dnafull-cold",
             "parasail-cigar-dnafull-hot",
+            "parasail-cigar-damage-hot",
             "parasail-score-custom-cold",
             "parasail-score-custom-hot",
             "parasail-score-dnafull-cold",
@@ -298,6 +300,14 @@ int main( int argc, char** argv )
                 }, "parasail-cigar-dnafull-cold" );
             }
 
+            // cigar-damage: traceback pass with damage-aware matrix (C→T and G→A cost 0)
+            {
+                auto* pf = parasail_make_profile( mutated.forward, mat_damage );
+                time_align( [&]{ return align_parasail_cigar( pf, mutated.forward, mutated.window, mat_damage ); },
+                         "parasail-cigar-damage-hot" );
+                parasail_profile_free( pf );
+            }
+
             // --- wfa2 ---
             time_align( [&]{
                 return align_wfa2_score( wf_score_exact, mutated.forward, mutated.window );
@@ -317,6 +327,7 @@ int main( int argc, char** argv )
 
     // Clean up
     parasail_matrix_free( mat_custom );
+    parasail_matrix_free( mat_damage );
     wavefront_aligner_delete( wf_score_exact     );
     wavefront_aligner_delete( wf_score_heuristic );
     wavefront_aligner_delete( wf_cigar_exact     );

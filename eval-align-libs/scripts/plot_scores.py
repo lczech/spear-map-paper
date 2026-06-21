@@ -41,6 +41,7 @@ LIBRARY_GROUPS = {
             "parasail-cigar-custom-cold",
             "parasail-cigar-dnafull-hot",
             "parasail-cigar-dnafull-cold",
+            "parasail-cigar-damage-hot",
         ],
         "direction": "higher is better",
     },

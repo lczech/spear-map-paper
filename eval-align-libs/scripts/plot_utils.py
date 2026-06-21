@@ -7,7 +7,7 @@ import numpy as np
 
 
 # Color groups: edlib=red, ksw2=orange, ps-score-custom=blue, ps-score-dnafull=navy,
-#               ps-cigar-custom=green, ps-cigar-dnafull=darkgreen,
+#               ps-cigar-custom=green, ps-cigar-dnafull=darkgreen, ps-cigar-damage=teal,
 #               wfa2-score=dark purple, wfa2-cigar=medium purple.
 # Linestyle: solid=exact, dashed=heuristic (for wfa2); solid=hot, dashed=cold (for parasail);
 #            solid=cigar, dashed=score (for ksw2).
@@ -44,6 +44,9 @@ ALIGNER_STYLE = {
     },
     "parasail-cigar-dnafull-cold": {
         "color": "#1e8449", "ls": "--", "label": "ps-cigar-dnafull (cold)",
+    },
+    "parasail-cigar-damage-hot": {
+        "color": "#16a085", "ls": "-",  "label": "ps-cigar-damage (hot)",
     },
     "wfa2-score-exact": {
         "color": "#7d3c98", "ls": "-",  "label": "wfa2-score-exact",
