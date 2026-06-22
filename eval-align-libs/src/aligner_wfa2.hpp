@@ -55,9 +55,42 @@ extern "C" {
 // Failure: any status other than WF_STATUS_ALG_COMPLETED sets failed=true.
 // For heuristic variants, WF_STATUS_ALG_PARTIAL (heuristic terminated early) is also a failure.
 
-// Factory: create a configured WFA2 aligner. Caller owns; free with wavefront_aligner_delete().
-inline wavefront_aligner_t* make_wfa2_aligner( alignment_scope_t scope, bool heuristic )
+// =================================================================================================
+//     Damage-aware lambda match
+// =================================================================================================
+
+// Args carried into the WFA2 lambda: sequence pointers + damage zone boundaries.
+// WFA2 lambda mode does not store sequence bytes internally, so we must supply them here.
+struct DamageArgs {
+    const char* read;  // query (pattern) sequence
+    const char* ref;   // reference (text) sequence
+    int ct_end;        // positions [0, ct_end): treat C→T as match (5' damage zone)
+    int ga_start;      // positions [ga_start, read_len): treat G→A as match (3' damage zone)
+};
+
+// Branchless: exact match, or damage-tolerated C→T / G→A within the read-end zones.
+// Uses bitwise | and & to avoid branch mispredictions in the mixed match/damage region.
+inline int damage_match_fn( int v, int h, void* args_ )
 {
+    DamageArgs const* a = static_cast<DamageArgs const*>( args_ );
+    uint8_t const q = static_cast<uint8_t>( a->read[v] );
+    uint8_t const r = static_cast<uint8_t>( a->ref[h] );
+    return (q == r)
+         | ((q == 'T') & (r == 'C') & (v <  a->ct_end))
+         | ((q == 'A') & (r == 'G') & (v >= a->ga_start));
+}
+
+// =================================================================================================
+//     WFA2 aligner
+// =================================================================================================
+
+// Factory: create a configured WFA2 aligner. Caller owns; free with wavefront_aligner_delete().
+// Default penalties (mismatch=4, gap_open=4, gap_extend=2) match ksw2/edlib convention.
+// Pass gap_open=6 to raise gap/mismatch ratio from 1.5x to 2.0x (discourages spurious gaps).
+inline wavefront_aligner_t* make_wfa2_aligner(
+    alignment_scope_t scope, bool heuristic,
+    int mismatch = 4, int gap_open = 4, int gap_extend = 2
+) {
     wavefront_aligner_attr_t attrs  = wavefront_aligner_attr_default;
     attrs.distance_metric           = gap_affine;
     attrs.alignment_scope           = scope;
@@ -68,9 +101,9 @@ inline wavefront_aligner_t* make_wfa2_aligner( alignment_scope_t scope, bool heu
     attrs.alignment_form.text_begin_free    = 0;
     attrs.alignment_form.text_end_free      = 0;
     attrs.affine_penalties.match         = 0;
-    attrs.affine_penalties.mismatch      = 4;
-    attrs.affine_penalties.gap_opening   = 4;
-    attrs.affine_penalties.gap_extension = 2;
+    attrs.affine_penalties.mismatch      = mismatch;
+    attrs.affine_penalties.gap_opening   = gap_open;
+    attrs.affine_penalties.gap_extension = gap_extend;
     attrs.system.verbose = 0;
 
     wavefront_aligner_t* wf = wavefront_aligner_new( &attrs );
@@ -111,6 +144,46 @@ inline AlignResult align_wfa2_score(
         wf->cigar->score,                   // WFA2 penalty (≥0, lower = better)
         false,
         false                               // has_start = false
+    };
+}
+
+// Damage-aware full alignment via WFA2 lambda interface.
+// Treats C→T in the first 5 bases and G→A in the last 5 bases of the read as matches (cost 0).
+// Score + start + end; start derived the same way as align_wfa2_cigar.
+inline AlignResult align_wfa2_cigar_damage(
+    wavefront_aligner_t* wf,
+    std::string const& query,
+    std::string const& target
+) {
+    int const qlen = static_cast<int>( query.size() );
+    int const tlen = static_cast<int>( target.size() );
+
+    DamageArgs args{
+        query.c_str(), target.c_str(),
+        /* ct_end   = */ 5,
+        /* ga_start = */ qlen - 5
+    };
+
+    wavefront_aligner_set_alignment_free_ends( wf, 0, 0, tlen, tlen );
+    int const status = wavefront_align_lambda( wf, damage_match_fn, &args, qlen, tlen );
+
+    if( status != WF_STATUS_ALG_COMPLETED ) {
+        return AlignResult{ 0, 0, 0, true };
+    }
+
+    cigar_t* const cig = wf->cigar;
+
+    int ref_span = 0;
+    for( int i = cig->begin_offset; i < cig->end_offset; ++i ) {
+        char const op = cig->operations[i];
+        if( op == 'M' || op == 'X' || op == 'D' ) ++ref_span;
+    }
+
+    return AlignResult{
+        cig->end_h - ref_span,
+        cig->end_h,
+        cig->score,
+        false
     };
 }
 

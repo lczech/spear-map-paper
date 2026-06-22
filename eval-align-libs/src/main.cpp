@@ -125,8 +125,13 @@ int main( int argc, char** argv )
     // WFA2 aligners created once and reused across all reads (models production use in Spear).
     wavefront_aligner_t* wf_score_exact     = make_wfa2_aligner( compute_score,     false );
     wavefront_aligner_t* wf_score_heuristic = make_wfa2_aligner( compute_score,     true  );
-    wavefront_aligner_t* wf_cigar_exact     = make_wfa2_aligner( compute_alignment, false );
-    wavefront_aligner_t* wf_cigar_heuristic = make_wfa2_aligner( compute_alignment, true  );
+    wavefront_aligner_t* wf_cigar_exact           = make_wfa2_aligner( compute_alignment, false );
+    wavefront_aligner_t* wf_cigar_heuristic       = make_wfa2_aligner( compute_alignment, true  );
+    wavefront_aligner_t* wf_cigar_damage          = make_wfa2_aligner( compute_alignment, false );
+    // Gap-discouraging variant: mismatch=4, gap_open=6, gap_extend=2 matches BWA-MEM's penalty
+    // scheme (Marco-Sola et al. 2021, Table 3) and raises the gap/mismatch ratio from 1.5x to 2.0x.
+    wavefront_aligner_t* wf_cigar_exact_rescaled   = make_wfa2_aligner( compute_alignment, false, 4, 6, 2 );
+    wavefront_aligner_t* wf_cigar_damage_rescaled  = make_wfa2_aligner( compute_alignment, false, 4, 6, 2 );
 
     std::mt19937_64 rng( 42 );
     std::vector<std::vector<size_t>> length_hists( grid.size() );
@@ -159,7 +164,10 @@ int main( int argc, char** argv )
             "parasail-score-custom-hot",
             "parasail-score-dnafull-cold",
             "parasail-score-dnafull-hot",
+            "wfa2-cigar-damage",
+            "wfa2-cigar-damage-rescaled",
             "wfa2-cigar-exact",
+            "wfa2-cigar-exact-rescaled",
             "wfa2-cigar-heuristic",
             "wfa2-score-exact",
             "wfa2-score-heuristic",
@@ -310,6 +318,15 @@ int main( int argc, char** argv )
 
             // --- wfa2 ---
             time_align( [&]{
+                return align_wfa2_cigar_damage( wf_cigar_damage, mutated.forward, mutated.window );
+            }, "wfa2-cigar-damage" );
+            time_align( [&]{
+                return align_wfa2_cigar_damage( wf_cigar_damage_rescaled, mutated.forward, mutated.window );
+            }, "wfa2-cigar-damage-rescaled" );
+            time_align( [&]{
+                return align_wfa2_cigar( wf_cigar_exact_rescaled, mutated.forward, mutated.window );
+            }, "wfa2-cigar-exact-rescaled" );
+            time_align( [&]{
                 return align_wfa2_score( wf_score_exact, mutated.forward, mutated.window );
             }, "wfa2-score-exact" );
             time_align( [&]{
@@ -330,8 +347,11 @@ int main( int argc, char** argv )
     parasail_matrix_free( mat_damage );
     wavefront_aligner_delete( wf_score_exact     );
     wavefront_aligner_delete( wf_score_heuristic );
-    wavefront_aligner_delete( wf_cigar_exact     );
-    wavefront_aligner_delete( wf_cigar_heuristic );
+    wavefront_aligner_delete( wf_cigar_exact          );
+    wavefront_aligner_delete( wf_cigar_heuristic      );
+    wavefront_aligner_delete( wf_cigar_damage          );
+    wavefront_aligner_delete( wf_cigar_damage_rescaled );
+    wavefront_aligner_delete( wf_cigar_exact_rescaled  );
 
     LOG_MSG << "Finished processing";
 

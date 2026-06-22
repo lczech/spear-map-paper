@@ -229,6 +229,7 @@ target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib ksw2 par
 if( GENESIS_HAS_LTO )
     message( STATUS "Building with LTO/IPO support" )
     set_property( TARGET eval-align-libs PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE )
+    set_property( TARGET wfa2_static     PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE )
 else()
     message( STATUS "Building without LTO/IPO support" )
 endif()
