@@ -1,9 +1,15 @@
 """Shared constants and helpers for eval-align-libs plotting scripts."""
 
+import math
+from pathlib import Path
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+# Output format for all figures. Change to "pdf" or "svg" for vector output.
+OUTPUT_FORMAT = "png"
 
 
 # Color groups: edlib=red, ksw2=orange, ps-score-custom=blue, ps-score-dnafull=navy,
@@ -112,12 +118,37 @@ def hide_unused(axes, n_used, nrows, ncols):
         axes[idx // ncols, idx % ncols].set_visible(False)
 
 
-def legend_below(fig, handles, labels, ncol=5):
+def savefig(fig, path):
+    """Save fig with OUTPUT_FORMAT, close it, and print the path."""
+    out = Path(path).with_suffix(f".{OUTPUT_FORMAT}")
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Written: {out}")
+
+
+def make_reduced_style():
+    """Build the REDUCED_ALIGNERS style dict with '(hot)' stripped from labels."""
+    style = {k: dict(ALIGNER_STYLE[k]) for k in REDUCED_ALIGNERS}
+    for v in style.values():
+        v["label"] = v["label"].replace(" (hot)", "").replace(" (cold)", "")
+    return style
+
+
+def legend_below(fig, handles, labels, ncol=None):
+    # Auto-pick ncol: at most 2 rows, capped at 5 columns.
+    if ncol is None:
+        ncol = min(5, math.ceil(len(labels) / 2))
+    # Reserve bottom space for the legend. Compute as absolute inches so the
+    # margin stays consistent regardless of figure height.
+    n_rows = math.ceil(len(labels) / ncol)
+    legend_height_in = n_rows * 9 * 1.8 / 72 + 0.25  # font rows + padding
+    bottom_margin = legend_height_in / fig.get_figheight()
     fig.legend(
         handles, labels,
         loc="lower center",
         ncol=ncol,
-        bbox_to_anchor=(0.5, -0.04),
-        fontsize=7,
+        bbox_to_anchor=(0.5, 0),
+        fontsize=9,
         frameon=True,
     )
+    fig.tight_layout(rect=[0, bottom_margin, 1, 1])

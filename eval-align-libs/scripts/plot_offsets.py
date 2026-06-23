@@ -19,12 +19,12 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_utils import (
-    ALIGNER_STYLE, REDUCED_ALIGNERS, setup_style, grid_label,
-    make_grid_fig, hide_unused, legend_below,
+    ALIGNER_STYLE, setup_style, grid_label,
+    make_grid_fig, hide_unused, legend_below, make_reduced_style, savefig,
 )
 
 
-def plot_one_offset(df, count_col, title, figures, grid_ids, df_s, style_dict=None):
+def plot_one_offset(df, count_col, title, figures, grid_ids, df_s, style_dict=None, outer_labels=False):
     if style_dict is None:
         style_dict = ALIGNER_STYLE
     setup_style()
@@ -62,13 +62,14 @@ def plot_one_offset(df, count_col, title, figures, grid_ids, df_s, style_dict=No
         ax.axvline(0, color="black", lw=0.6, ls="-", alpha=0.4)
         ax.set_yscale("log")
         ax.set_title(grid_label(grid_row), fontsize=8)
-        ax.set_xlabel("offset (bp)")
-        ax.set_ylabel("count")
+        if not outer_labels or idx // ncols == nrows - 1:
+            ax.set_xlabel("offset (bp)")
+        if not outer_labels or idx % ncols == 0:
+            ax.set_ylabel("count")
 
     hide_unused(axes, len(grid_ids), nrows, ncols)
     fig.suptitle(title, y=1.01, fontsize=11)
     legend_below(fig, handles, labels)
-    fig.tight_layout()
     return fig
 
 
@@ -126,20 +127,13 @@ def main():
     ]:
         # Combined plot — all aligners overlaid
         fig = plot_one_offset(df, count_col, label, figures, grid_ids, df_s)
-        out = figures / f"{fname_prefix}.png"
-        fig.savefig(out, bbox_inches="tight")
-        plt.close(fig)
-        print(f"Written: {out}")
+        savefig(fig, figures / f"{fname_prefix}.png")
 
         # Combined plot — reduced aligner set
-        reduced_style = {k: ALIGNER_STYLE[k] for k in REDUCED_ALIGNERS}
-        fig = plot_one_offset(df, count_col, label, figures, grid_ids, df_s, reduced_style)
-        out = figures / f"{fname_prefix}_reduced.png"
-        fig.savefig(out, bbox_inches="tight")
-        plt.close(fig)
-        print(f"Written: {out}")
+        fig = plot_one_offset(df, count_col, label, figures, grid_ids, df_s, make_reduced_style(), outer_labels=True)
+        savefig(fig, figures / f"{fname_prefix}_reduced.png")
 
-        # Per-aligner plots — one PNG per aligner
+        # Per-aligner plots — one file per aligner
         for aligner, style in ALIGNER_STYLE.items():
             if df[df["aligner"] == aligner][count_col].sum() == 0:
                 continue
@@ -147,10 +141,7 @@ def main():
                 df, count_col, title_prefix, grid_ids, df_s, aligner, style
             )
             safe_name = aligner.replace("/", "_")
-            out = figures / f"{fname_prefix}_{safe_name}.png"
-            fig.savefig(out, bbox_inches="tight")
-            plt.close(fig)
-            print(f"Written: {out}")
+            savefig(fig, figures / f"{fname_prefix}_{safe_name}.png")
 
 
 if __name__ == "__main__":

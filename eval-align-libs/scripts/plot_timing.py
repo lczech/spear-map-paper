@@ -15,8 +15,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_utils import (
-    ALIGNER_STYLE, REDUCED_ALIGNERS, setup_style, grid_label,
-    make_grid_fig, hide_unused, legend_below,
+    ALIGNER_STYLE, setup_style, grid_label,
+    make_grid_fig, hide_unused, legend_below, make_reduced_style, savefig,
 )
 
 
@@ -47,7 +47,7 @@ def main():
     # (grid_idx, aligner) → mean_ns for the vertical mean marker
     mean_ns = df_s.set_index(["grid_idx", "aligner"])["mean_ns"]
 
-    def make_plot(style_dict, out_path):
+    def make_plot(style_dict, out_path, outer_labels=False):
         setup_style()
         grid_ids = sorted(df_t["grid_idx"].unique())
         fig, axes, nrows, ncols = make_grid_fig(len(grid_ids))
@@ -81,21 +81,19 @@ def main():
 
             ax.set_xscale("log")
             ax.set_title(grid_label(grid_row), fontsize=8)
-            ax.set_xlabel("time (µs)")
-            ax.set_ylabel("count")
+            if not outer_labels or idx // ncols == nrows - 1:
+                ax.set_xlabel("time (µs)")
+            if not outer_labels or idx % ncols == 0:
+                ax.set_ylabel("count")
 
         hide_unused(axes, len(grid_ids), nrows, ncols)
         fig.suptitle("Alignment timing distributions", y=1.01, fontsize=11)
         legend_below(fig, handles, labels)
-        fig.tight_layout()
-        fig.savefig(out_path, bbox_inches="tight")
-        plt.close(fig)
-        print(f"Written: {out_path}")
+        savefig(fig, out_path)
 
     make_plot(ALIGNER_STYLE, figures / "timing.png")
 
-    reduced_style = {k: ALIGNER_STYLE[k] for k in REDUCED_ALIGNERS}
-    make_plot(reduced_style, figures / "timing_reduced.png")
+    make_plot(make_reduced_style(), figures / "timing_reduced.png", outer_labels=True)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_utils import (
     ALIGNER_STYLE, setup_style, grid_label,
-    make_grid_fig, hide_unused, legend_below,
+    make_grid_fig, hide_unused, legend_below, savefig,
 )
 
 LIBRARY_GROUPS = {
@@ -92,7 +92,6 @@ def plot_library_scores(df, df_s, grid_ids, lib_name, group):
     hide_unused(axes, len(grid_ids), nrows, ncols)
     fig.suptitle(f"Score distributions — {lib_name}", y=1.01, fontsize=11)
     legend_below(fig, handles, labels)
-    fig.tight_layout()
     return fig
 
 
@@ -113,9 +112,7 @@ def main():
     for lib_name, group in LIBRARY_GROUPS.items():
         fig = plot_library_scores(df, df_s, grid_ids, lib_name, group)
         out = figures / f"scores_{lib_name}.png"
-        fig.savefig(out, bbox_inches="tight")
-        plt.close(fig)
-        print(f"Written: {out}")
+        savefig(fig, out)
 
 
 if __name__ == "__main__":
