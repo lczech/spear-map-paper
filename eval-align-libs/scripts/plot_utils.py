@@ -23,9 +23,9 @@ REDUCED_ALIGNERS = [
     "parasail-cigar-dnafull-hot",
     "parasail-cigar-damage-hot",
     "wfa2-cigar-exact",
-    "wfa2-cigar-exact-rescaled",
+    "wfa2-cigar-exact-conservative",
     "wfa2-cigar-damage",
-    "wfa2-cigar-damage-rescaled",
+    "wfa2-cigar-damage-conservative",
 ]
 
 ALIGNER_STYLE = {
@@ -68,11 +68,11 @@ ALIGNER_STYLE = {
     "wfa2-cigar-damage": {
         "color": "#884ea0", "ls": "-",  "label": "wfa2-cigar-damage",
     },
-    "wfa2-cigar-damage-rescaled": {
-        "color": "#6c3483", "ls": "-",  "label": "wfa2-cigar-damage-rescaled",
+    "wfa2-cigar-damage-conservative": {
+        "color": "#6c3483", "ls": "-",  "label": "wfa2-cigar-damage-conservative",
     },
-    "wfa2-cigar-exact-rescaled": {
-        "color": "#c39bd3", "ls": "-",  "label": "wfa2-cigar-exact-rescaled",
+    "wfa2-cigar-exact-conservative": {
+        "color": "#c39bd3", "ls": "-",  "label": "wfa2-cigar-exact-conservative",
     },
     "wfa2-score-exact": {
         "color": "#7d3c98", "ls": "-",  "label": "wfa2-score-exact",
