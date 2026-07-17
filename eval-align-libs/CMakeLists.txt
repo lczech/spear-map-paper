@@ -90,30 +90,19 @@ endif()
 
 set( DEPS_DIR "${PROJECT_SOURCE_DIR}/../deps" )
 
-# --- Genesis ------------------------------------------------------------------
+# --- eval_common (genesis, shatter/mutate read simulation) --------------------
 
-set( GENESIS_CPP_STANDARD        "20" CACHE BOOL "" FORCE )
-set( GENESIS_BUILD_APPLICATIONS  OFF  CACHE BOOL "" FORCE )
-set( GENESIS_BUILD_PYTHON_MODULE OFF  CACHE BOOL "" FORCE )
-set( GENESIS_BUILD_TESTS         OFF  CACHE BOOL "" FORCE )
-set( GENESIS_USE_HTSLIB          OFF  CACHE BOOL "" FORCE )
+set( eval_common_DIR "${PROJECT_SOURCE_DIR}/../common" )
+message( STATUS "Looking for common eval tooling" )
 
-set( genesis_SUBMODULE_DIR "${DEPS_DIR}/genesis" )
-message( STATUS "Looking for genesis" )
-
-if( EXISTS "${genesis_SUBMODULE_DIR}/CMakeLists.txt" )
-    message( STATUS "${ColorGreen}Found genesis submodule at ${genesis_SUBMODULE_DIR}${ColorEnd}" )
-    add_subdirectory( "${genesis_SUBMODULE_DIR}" "${CMAKE_BINARY_DIR}/genesis" )
-    set( genesis_SOURCE "${genesis_SUBMODULE_DIR}" )
+if( EXISTS "${eval_common_DIR}/CMakeLists.txt" )
+    message( STATUS "${ColorGreen}Found common eval tooling at ${eval_common_DIR}${ColorEnd}" )
+    add_subdirectory( "${eval_common_DIR}" "${CMAKE_BINARY_DIR}/common" )
 else()
     message( FATAL_ERROR
-        "${ColorRed}Genesis submodule not found at ${genesis_SUBMODULE_DIR}. "
-        "Run: git submodule update --init --recursive${ColorEnd}"
+        "${ColorRed}common eval tooling not found at ${eval_common_DIR}.${ColorEnd}"
     )
 endif()
-
-# Genesis headers — marked SYSTEM to suppress warnings from their headers
-include_directories( SYSTEM "${genesis_SOURCE}/lib" )
 
 # --- edlib --------------------------------------------------------------------
 
@@ -224,7 +213,7 @@ target_compile_definitions( eval-align-libs PRIVATE
     BENCH_DIR="${PROJECT_SOURCE_DIR}/benchmarks"
 )
 
-target_link_libraries( eval-align-libs PRIVATE genesis_lib_static edlib ksw2 parasail wfa2_static )
+target_link_libraries( eval-align-libs PRIVATE eval_common edlib ksw2 parasail wfa2_static )
 
 if( GENESIS_HAS_LTO )
     message( STATUS "Building with LTO/IPO support" )
