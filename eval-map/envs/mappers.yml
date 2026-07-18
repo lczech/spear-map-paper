@@ -1,0 +1,11 @@
+channels:
+  #- bioconda
+  - conda-forge
+  - bioconda
+dependencies:
+  - bowtie2
+  - bwa
+  - mapad
+  - samtools=1.20
+  - htslib=1.20
+  - ncurses>=6

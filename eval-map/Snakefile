@@ -1,0 +1,609 @@
+# ------------------------------------------------------------
+# Snakefile: Human reference → indices → simulate mismatches → map → correctness/length stats → heatmaps
+# ------------------------------------------------------------
+
+config = {
+    "ref_url": "https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz",
+    "ref_basename": "genome",
+    "mismatch_rates": [0, 5, 10],
+    # "mismatch_rates": list(range(0, 16, 1)),
+    "simulator": "tools/generate_fragments/bin/generate_fragments",
+    "sim_args": {
+        "min_len": 30,
+        "max_len": 150,
+        "gamma_shape": 2.0,
+        "gamma_scale": 15.0,
+        "seed": 42
+    },
+    "threads": 8,
+
+    # Command run before invoking locally-built C++ binaries (generate_fragments, spear), to make
+    # their runtime library requirements available. Set for the cluster; clear to "" on machines
+    # without environment modules (e.g. `module load` isn't a command there, so this would error).
+    "module_load": "module load gcc/13.2.0",
+
+    # Path to the spear binary. Spear is developed in its own sibling repo and is not vendored
+    # here, so this needs to be adjusted manually to wherever you have it built (e.g. an absolute
+    # path on the cluster). Default assumes spear-map-paper and spear are checked out side by side.
+    "spear_binary": "../../spear/bin/spear",
+
+    # --------------------------------------------------------------------------------------
+    # Mapper presets.
+    #
+    # ACTIVE presets (used by the rules below) are set close to each mapper's own defaults,
+    # since the current sweep is mismatch/divergence-only (no aDNA damage simulation yet).
+    # `-k`/`-a` are kept even in the "default" presets to enable multi-hit reporting, needed to
+    # check "is any reported hit correct" for multi-mapping reads.
+    #
+    # Below, several rounds of aDNA-damage-tuned presets from prior experiments are kept
+    # commented out (not deleted) for later reactivation once damage simulation is added.
+    # --------------------------------------------------------------------------------------
+
+    # "bowtie2_preset": "--very-sensitive",
+    # "bwa_mem_preset": ""
+    #
+    # First run: pipeline and paper
+    # "bowtie2_preset": "--time -N 0 -k 10 -D 15 -R 2 -L 22 -i S,1,1.15 --np 1 --mp 1,1 --rdg 0,1 --rfg 0,1 --score-min L,0,-0.1 --no-unal -q", # from production
+    # "bwa_mem_preset": "-k 22 -B 1 -O 0,0 -E 1,1 -L 0,0 -T 0 -a -Y" # translated from bowtie - not used
+    # "bwa_mem_preset": "-k 19 -r 2.5", # from paper
+    # "bwa_aln_preset": "-l 1024", # from paper
+    #
+    # Second run: Antonio 1
+    # "bowtie2_preset": "--time -N 0 -k 10 -D 15 -R 2 -L 22 -i S,1,1.15 --np 1 --mp 1,1 --rdg 0,1 --rfg 0,1 --score-min L,0,-0.15 --no-unal -q",
+    # "bwa_mem_preset": "-k 19 -r 2.5",
+    # "bwa_aln_preset": "-l 1024 -n 0.15"
+    #
+    # Third run: Antonio 2
+    # "bowtie2_preset": "--time -N 1 -k 10 -D 15 -R 2 -L 20 -i S,1,1.15 --np 1 --mp 1,1 --rdg 0,1 --rfg 0,1 --score-min L,0,-0.15 --no-unal -q",
+    # "bwa_mem_preset": "-k 19 -r 2.5",
+    # "bwa_aln_preset": "-l 20 -k 2 -n 0.08"
+    #
+    # Fourth run: Julian bwa aln, and mapAD (aDNA-damage-tuned; reactivate once damage sims exist)
+    # "bowtie2_preset": "--time -N 1 -k 10 -D 15 -R 2 -L 20 -i S,1,1.15 --np 1 --mp 1,1 --rdg 0,1 --rfg 0,1 --score-min L,0,-0.15 --no-unal -q",
+    # "bwa_mem_preset": "-k 19 -r 2.5",
+    # "bwa_aln_preset": "-l 1024 -n 0.01", # 0.005 was too slow, not finished in 24h
+    # "mapad_preset": "-p 0.10 -f 0.5 -t 0.5 -d 0.02 -s 1.0 -i 0.001 -x 0.5 --library single_stranded",
+
+    # Fifth run (ACTIVE): default/out-of-the-box params for a mismatch-only sweep.
+    # spear has no prior-run history (it wasn't part of the earlier aDNA-mapper study), so it only
+    # gets the one active preset; empty uses spear's own CLI defaults for that step.
+    "bowtie2_preset": "-q --no-unal -k 10",
+    "bwa_mem_preset": "-a",
+    "bwa_aln_preset": "",
+    # mapAD's own required/default flags are not verified here (not available to test locally);
+    # adjust if it errors on an empty preset.
+    "mapad_preset": "",
+    "spear_index_preset": "--max-occurrences-per-kmer 1000",
+    "spear_preset": "",
+}
+
+REF_FA      = f"ref/{config['ref_basename']}.fa"
+REF_FA_GZ   = f"{REF_FA}.gz"
+BT2_PREFIX  = f"idx/bowtie2/{config['ref_basename']}"
+BWA_PREFIX  = f"idx/bwa/{config['ref_basename']}.fa"
+SPEAR_IDX_DIR = "idx/spear"
+MAPAD_IDX_EXTS = [".tbw", ".tle", ".toc", ".tpi", ".trt", ".tsa"]
+MISMATCHES  = [f"{mm:02d}" for mm in config["mismatch_rates"]]
+MAPPERS     = ["bowtie2", "bwa_mem", "bwa_aln", "mapad", "spear"]
+METRICS     = ["mapped", "correct"]
+
+# Fragment length bins (exact-bp bins 30..150 inclusive)
+LEN_MIN = int(config["sim_args"]["min_len"])
+LEN_MAX = int(config["sim_args"]["max_len"])
+LENGTHS = list(range(LEN_MIN, LEN_MAX + 1))
+
+# =================================================================================================
+#     One rule to rule them all
+# =================================================================================================
+
+rule all:
+    input:
+        # reference & indices
+        REF_FA,
+        f"{REF_FA}.fai",
+        expand(BT2_PREFIX + ".{ext}", ext=["1.bt2", "2.bt2", "3.bt2", "4.bt2", "rev.1.bt2", "rev.2.bt2"]),
+        expand(BWA_PREFIX + "{ext}", ext=[".amb", ".ann", ".bwt", ".pac", ".sa"]),
+        expand(REF_FA + "{ext}", ext=MAPAD_IDX_EXTS),
+        f"{SPEAR_IDX_DIR}/map-index.json",
+        f"{SPEAR_IDX_DIR}/map-index.sidx",
+        # simulated reads + ground truth
+        expand("sim/mm{mm}/reads.fq.gz", mm=MISMATCHES),
+        expand("sim/mm{mm}/truth.tsv", mm=MISMATCHES),
+        # BAMs + stats
+        expand("map/{mapper}/mm{mm}/{mapper}.bam",       mapper=MAPPERS, mm=MISMATCHES),
+        expand("map/{mapper}/mm{mm}/{mapper}.bam.bai",   mapper=MAPPERS, mm=MISMATCHES),
+        expand("map/{mapper}/mm{mm}/flagstat.txt",       mapper=MAPPERS, mm=MISMATCHES),
+        # per-length totals, mapped counts, and correctness counts (vs. ground truth)
+        expand("stats/total/mm{mm}.len.tsv", mm=MISMATCHES),
+        expand("stats/{mapper}/mm{mm}.{metric}.len.tsv", mapper=MAPPERS, mm=MISMATCHES, metric=METRICS),
+        # long-format summaries (per mapper, per metric)
+        expand("summary/{metric}_by_length_{mapper}.tsv", mapper=MAPPERS, metric=METRICS),
+        # heatmatrix wide-format (per mapper, per metric)
+        expand("summary/heatmatrix_{metric}_{mapper}.tsv", mapper=MAPPERS, metric=METRICS),
+        # plots
+        expand("plots/heatmap_{metric}_{mapper}.png", mapper=MAPPERS, metric=METRICS)
+
+localrules:
+    all,
+
+# =================================================================================================
+#     Reference
+# =================================================================================================
+
+rule download_reference:
+    output: REF_FA_GZ
+    conda: "envs/utils.yml"
+    shell: r"""
+        mkdir -p ref
+        wget -O {output} "{config[ref_url]}"
+    """
+
+localrules:
+    download_reference,
+
+rule decompress_reference:
+    input: REF_FA_GZ
+    output: REF_FA
+    conda: "envs/utils.yml"
+    shell: r"""
+        mkdir -p ref
+        if file -b --mime-type {input} | grep -q 'gzip'; then
+            pigz -dc {input} > {output}
+        else
+            cp -f {input} {output}
+        fi
+    """
+
+rule faidx:
+    input: REF_FA
+    output: REF_FA + ".fai"
+    conda: "envs/mappers.yml"
+    benchmark:
+        "benchmarks/index_faidx/benchmark.txt"
+    shell: r"""
+        samtools faidx {input}
+    """
+
+# =================================================================================================
+#     Indexing
+# =================================================================================================
+
+rule bowtie2_build:
+    input: REF_FA
+    output: expand(BT2_PREFIX + ".{ext}", ext=["1.bt2", "2.bt2", "3.bt2", "4.bt2", "rev.1.bt2", "rev.2.bt2"])
+    conda: "envs/mappers.yml"
+    threads: 4
+    benchmark:
+        "benchmarks/index_bowtie2/benchmark.txt"
+    shell: r"""
+        mkdir -p idx/bowtie2
+        bowtie2-build --threads {threads} {input} {BT2_PREFIX}
+    """
+
+rule bwa_index:
+    input: REF_FA
+    output: expand(BWA_PREFIX + "{ext}", ext=[".amb", ".ann", ".bwt", ".pac", ".sa"])
+    conda: "envs/mappers.yml"
+    threads: 4
+    benchmark:
+        "benchmarks/index_bwa/benchmark.txt"
+    shell: r"""
+        mkdir -p idx/bwa
+        cp -f {input} {BWA_PREFIX}
+        bwa index -p {BWA_PREFIX} {BWA_PREFIX}
+    """
+
+rule mapad_index:
+    input:
+        REF_FA
+    output:
+        expand(REF_FA + "{ext}", ext=MAPAD_IDX_EXTS)
+    conda: "envs/mappers.yml"
+    threads: 2
+    resources:
+        mem_mb = 500000
+    benchmark:
+        "benchmarks/index_mapad/benchmark.txt"
+    shell:
+        r"""
+        mapad index --reference {input}
+        """
+
+rule spear_index:
+    input: REF_FA
+    output:
+        json = f"{SPEAR_IDX_DIR}/map-index.json",
+        sidx = f"{SPEAR_IDX_DIR}/map-index.sidx"
+    params:
+        binary      = config["spear_binary"],
+        extra       = config["spear_index_preset"],
+        module_load = config["module_load"]
+    threads: config["threads"]
+    resources:
+        mem_mb = 700000
+    benchmark:
+        "benchmarks/index_spear/benchmark.txt"
+    shell: r"""
+        {params.module_load}
+        mkdir -p {SPEAR_IDX_DIR}
+        {params.binary} map index \
+          --fasta-path {input} \
+          --out-dir {SPEAR_IDX_DIR} \
+          --threads {threads} \
+          --allow-file-overwriting \
+          {params.extra}
+    """
+
+# =================================================================================================
+#     Simulation
+# =================================================================================================
+
+rule simulate_reads:
+    """
+    Simulate reads via generate_fragments (shatter + mutate; see common/), writing both the
+    gzipped FASTQ and a ground-truth TSV (read_id, chrom, start, end, strand) used downstream to
+    check whether each mapper placed a read at its true origin.
+    """
+    input: REF_FA
+    output:
+        reads = "sim/mm{mm}/reads.fq.gz",
+        truth = "sim/mm{mm}/truth.tsv"
+    params:
+        min_len     = config["sim_args"]["min_len"],
+        max_len     = config["sim_args"]["max_len"],
+        gamma_shape = config["sim_args"]["gamma_shape"],
+        gamma_scale = config["sim_args"]["gamma_scale"],
+        seed        = config["sim_args"]["seed"],
+        simulator   = config["simulator"],
+        module_load = config["module_load"],
+        # mismatch_rates are whole percent (0..15); generate_fragments wants a 0-1 probability.
+        sub_rate    = lambda w: int(w.mm) / 100.0
+    threads: 2
+    resources:
+        mem_mb = 10000
+    benchmark:
+        "benchmarks/simulate_reads/mm{mm}.benchmark.txt"
+    shell: r"""
+        {params.module_load}
+        mkdir -p sim/mm{wildcards.mm}
+        {params.simulator} \
+            --reference {input} \
+            --sub-rate {params.sub_rate} \
+            --min-len {params.min_len} \
+            --max-len {params.max_len} \
+            --gamma-shape {params.gamma_shape} \
+            --gamma-scale {params.gamma_scale} \
+            --seed {params.seed} \
+            --out {output.reads} \
+            --truth-out {output.truth}
+    """
+
+# =================================================================================================
+#     Mapping
+# =================================================================================================
+
+rule map_bowtie2:
+    input:
+        fq = "sim/mm{mm}/reads.fq.gz",
+        bt2 = expand(BT2_PREFIX + ".{ext}", ext=["1.bt2", "2.bt2", "3.bt2", "4.bt2", "rev.1.bt2", "rev.2.bt2"])
+    output:
+        bam = "map/bowtie2/mm{mm}/bowtie2.bam",
+        bai = "map/bowtie2/mm{mm}/bowtie2.bam.bai",
+        flagstat= "map/bowtie2/mm{mm}/flagstat.txt"
+    params:
+        preset  = config["bowtie2_preset"]
+    conda: "envs/mappers.yml"
+    threads: config["threads"]
+    resources:
+        mem_mb = 25000,
+        #runtime = 1440
+    benchmark:
+        "benchmarks/bowtie2/mm{mm}.benchmark.txt"
+    shell: r"""
+        mkdir -p map/bowtie2/mm{wildcards.mm}
+        bowtie2 {params.preset} -x {BT2_PREFIX} -U {input.fq} -p {threads} \
+          | samtools view -b - \
+          | samtools sort -@ {threads} -o {output.bam}
+        samtools index {output.bam}
+        samtools flagstat {output.bam} > {output.flagstat}
+    """
+
+rule map_bwa_mem:
+    input:
+        reads = "sim/mm{mm}/reads.fq.gz",
+        idx_amb = "idx/bwa/genome.fa.amb",
+        idx_ann = "idx/bwa/genome.fa.ann",
+        idx_bwt = "idx/bwa/genome.fa.bwt",
+        idx_pac = "idx/bwa/genome.fa.pac",
+        idx_sa  = "idx/bwa/genome.fa.sa"
+    output:
+        bam      = "map/bwa_mem/mm{mm}/bwa_mem.bam",
+        bai      = "map/bwa_mem/mm{mm}/bwa_mem.bam.bai",
+        flagstat = "map/bwa_mem/mm{mm}/flagstat.txt"
+    params:
+        preset  = config["bwa_mem_preset"],
+    threads: 8
+    resources:
+        mem_mb = 30000
+    log:
+        "map/bwa_mem/{mm}/bwa.log"
+    conda:
+        "envs/mappers.yml"
+    benchmark:
+        "benchmarks/bwa_mem/mm{mm}.benchmark.txt"
+    shell:
+        r'''
+        set -euo pipefail
+        mkdir -p "$(dirname {output.bam})"
+
+        # BWA writes a lot to stderr; capture it. -v 3 = more verbose.
+        bwa mem {params.preset} -v 3 -t {threads} idx/bwa/genome.fa {input.reads} 2> >(tee -a {log} >&2) \
+          | samtools sort -@ {threads} -O BAM -o {output.bam} - 2>> {log}
+
+        samtools index {output.bam} 2>> {log}
+        samtools flagstat {output.bam} > {output.flagstat} 2>> {log}
+        '''
+
+rule map_bwa_aln:
+    """
+    Map simulated reads with BWA-ALN (single-end) using 'aln' + 'samse'.
+    Produces sorted, indexed BAM and flagstat.
+
+    Notes:
+      - BWA-ALN uses the same index as BWA-MEM (already built by rule bwa_index).
+      - Options come from config 'bwa_aln_preset'.
+    """
+    input:
+        fq  = "sim/mm{mm}/reads.fq.gz",
+        idx = expand("idx/bwa/genome.fa{ext}", ext=[".amb", ".ann", ".bwt", ".pac", ".sa"])
+    output:
+        bam     = "map/bwa_aln/mm{mm}/bwa_aln.bam",
+        bai     = "map/bwa_aln/mm{mm}/bwa_aln.bam.bai",
+        flagstat= "map/bwa_aln/mm{mm}/flagstat.txt"
+    params:
+        preset  = config["bwa_aln_preset"],
+    conda:
+        "envs/mappers.yml"
+    threads: config["threads"]
+    resources:
+        runtime = 1440
+    benchmark:
+        "benchmarks/bwa_aln/mm{mm}.benchmark.txt"
+    shell:
+        r"""
+        mkdir -p map/bwa_aln/mm{wildcards.mm}
+        # 1) Align to produce .sai
+        bwa aln -t {threads} {params.preset} idx/bwa/genome.fa {input.fq} > map/bwa_aln/mm{wildcards.mm}/reads.sai
+
+        # 2) Make SAM (single-end)
+        bwa samse idx/bwa/genome.fa map/bwa_aln/mm{wildcards.mm}/reads.sai {input.fq} \
+          | samtools view -b - \
+          | samtools sort -@ {threads} -o {output.bam}
+
+        samtools index {output.bam}
+        samtools flagstat {output.bam} > {output.flagstat}
+
+        # optional: clean intermediate
+        # rm -f map/bwa_aln/mm{wildcards.mm}/reads.sai
+        """
+
+rule map_mapad:
+    input:
+        fq  = "sim/mm{mm}/reads.fq.gz",
+        idx = expand(REF_FA + "{ext}", ext=MAPAD_IDX_EXTS)
+    output:
+        bam      = "map/mapad/mm{mm}/mapad.bam",
+        bai      = "map/mapad/mm{mm}/mapad.bam.bai",
+        flagstat = "map/mapad/mm{mm}/flagstat.txt"
+    params:
+        preset = config["mapad_preset"],
+        tmp_unsorted = lambda wc: f"map/mapad/mm{wc.mm}/mapad.unsorted.bam"
+    conda: "envs/mappers.yml"
+    threads: config["threads"]
+    resources:
+        mem_mb = 50000,
+        runtime = 1440
+    benchmark:
+        "benchmarks/mapad/mm{mm}.benchmark.txt"
+    shell:
+        r"""
+        mkdir -p map/mapad/mm{wildcards.mm}
+
+        # mapAD writes an **unsorted** BAM; write to a temp, then coordinate-sort
+        mapad map \
+          --threads {threads} \
+          --reference {REF_FA} \
+          --reads {input.fq} \
+          --output {params.tmp_unsorted} \
+          {params.preset}
+
+        # Coordinate-sort (not name-sort!) so unmapped land at the end
+        samtools sort -@ {threads} -o {output.bam} {params.tmp_unsorted}
+        rm -f {params.tmp_unsorted}
+
+        samtools index {output.bam}
+        samtools flagstat {output.bam} > {output.flagstat}
+        """
+
+rule map_spear:
+    input:
+        fq   = "sim/mm{mm}/reads.fq.gz",
+        json = f"{SPEAR_IDX_DIR}/map-index.json",
+        sidx = f"{SPEAR_IDX_DIR}/map-index.sidx"
+    output:
+        bam      = "map/spear/mm{mm}/spear.bam",
+        bai      = "map/spear/mm{mm}/spear.bam.bai",
+        flagstat = "map/spear/mm{mm}/flagstat.txt"
+    params:
+        binary      = config["spear_binary"],
+        extra       = config["spear_preset"],
+        module_load = config["module_load"],
+        outdir      = lambda wc: f"map/spear/mm{wc.mm}",
+        tmp_unsorted= lambda wc: f"map/spear/mm{wc.mm}/map-align.bam"
+    conda: "envs/mappers.yml"
+    threads: config["threads"]
+    resources:
+        mem_mb = 150000
+    benchmark:
+        "benchmarks/spear/mm{mm}.benchmark.txt"
+    shell: r"""
+        {params.module_load}
+        mkdir -p {params.outdir}
+        {params.binary} map align \
+          --index-file {input.json} \
+          --reads-path {input.fq} \
+          --out-dir {params.outdir} \
+          --threads {threads} \
+          --allow-file-overwriting \
+          {params.extra}
+
+        # spear writes reads in input order, not coordinate order; sort before indexing.
+        samtools sort -@ {threads} -o {output.bam} {params.tmp_unsorted}
+        rm -f {params.tmp_unsorted}
+
+        samtools index {output.bam}
+        samtools flagstat {output.bam} > {output.flagstat}
+    """
+
+# =================================================================================================
+#     Lengths totals
+# =================================================================================================
+
+rule length_totals_from_fastq:
+    """
+    Count total reads per exact length from FASTQ.
+    Output format: len\tcount
+    """
+    input: "sim/mm{mm}/reads.fq.gz"
+    output: "stats/total/mm{mm}.len.tsv"
+    conda: "envs/utils.yml"
+    shell: r"""
+        mkdir -p stats/total
+        # FASTQ: sequence line is every 4th line, i.e., NR%4==2
+        pigz -dc {input} \
+          | awk 'NR%4==2 {{print length($0)}}' \
+          | sort -n \
+          | uniq -c \
+          | awk '{{printf "%d\t%d\n",$2,$1}}' \
+          | awk -v min={LEN_MIN} -v max={LEN_MAX} '($1>=min && $1<=max)' \
+          > {output}
+    """
+
+rule length_mapped_from_bam:
+    """
+    Count mapped reads per exact length from BAM (SEQ length from SAM col 10).
+    Primary alignments only (secondary/supplementary excluded), so multi-hits don't inflate this.
+    Output format: len\tcount
+    """
+    input: bam="map/{mapper}/mm{mm}/{mapper}.bam"
+    output: "stats/{mapper}/mm{mm}.mapped.len.tsv"
+    conda: "envs/mappers.yml"
+    shell: r"""
+        mkdir -p stats/{wildcards.mapper}
+        samtools view -F 0x904 {input.bam} \
+          | awk '{{print length($10) "\t" $1}}' \
+          | sort -u \
+          | cut -f1 \
+          | sort -n \
+          | uniq -c \
+          | awk '{{printf "%d\t%d\n",$2,$1}}' \
+          | awk -v min={LEN_MIN} -v max={LEN_MAX} '($1>=min && $1<=max)' \
+          > {output}
+    """
+
+rule extract_bam_hits:
+    """
+    Dump QNAME/FLAG/RNAME/POS for every *mapped* alignment record -- primary, secondary, and
+    supplementary alike -- so that a multi-mapping read's non-primary hits are available for the
+    correctness check below (a read counts as correctly mapped if ANY reported hit, not just the
+    primary one, matches its true origin).
+    """
+    input: bam="map/{mapper}/mm{mm}/{mapper}.bam"
+    output: "stats/{mapper}/mm{mm}.hits.tsv"
+    conda: "envs/mappers.yml"
+    shell: r"""
+        mkdir -p stats/{wildcards.mapper}
+        samtools view -F 4 {input.bam} \
+          | awk 'BEGIN{{OFS="\t"}} {{print $1,$2,$3,$4}}' \
+          > {output}
+    """
+
+rule length_correct_from_bam:
+    """
+    Count correctly-mapped reads per true length, by joining all mapped BAM hits (including
+    secondary/supplementary) against the ground-truth origin recorded by generate_fragments.
+    Output format: len\tcount (same shape as length_mapped_from_bam's output, for reuse below).
+    """
+    input:
+        hits  = "stats/{mapper}/mm{mm}.hits.tsv",
+        truth = "sim/mm{mm}/truth.tsv"
+    output: "stats/{mapper}/mm{mm}.correct.len.tsv"
+    params:
+        len_min = LEN_MIN,
+        len_max = LEN_MAX
+    conda: "envs/python.yml"
+    script: "scripts/length_correct_from_bam.py"
+
+rule summarize_by_length_mapper:
+    input:
+        totals = expand("stats/total/mm{mm}.len.tsv", mm=MISMATCHES),
+        metric = lambda wc: expand(
+            "stats/{mapper}/mm{mm}.{metric}.len.tsv", mapper=wc.mapper, mm=MISMATCHES, metric=wc.metric
+        )
+    output:
+        "summary/{metric}_by_length_{mapper}.tsv"
+    params:
+        len_min = LEN_MIN,
+        len_max = LEN_MAX,
+        metric  = lambda wc: wc.metric
+    wildcard_constraints:
+        metric = "|".join(METRICS)
+    conda:
+        "envs/python.yml"
+    script:
+        "scripts/summarize_by_length_mapper.py"
+
+# =================================================================================================
+#     Heatmatrix
+# =================================================================================================
+
+rule heatmatrix_wide:
+    input:
+        "summary/{metric}_by_length_{mapper}.tsv"
+    output:
+        "summary/heatmatrix_{metric}_{mapper}.tsv"
+    params:
+        len_min = LEN_MIN,
+        len_max = LEN_MAX,
+        metric  = lambda wc: wc.metric
+    wildcard_constraints:
+        metric = "|".join(METRICS)
+    conda:
+        "envs/python.yml"
+    script:
+        "scripts/heatmatrix_wide.py"
+
+rule plot_heatmap:
+    input:
+        matrix = "summary/heatmatrix_{metric}_{mapper}.tsv"
+    output:
+        "plots/heatmap_{metric}_{mapper}.png"
+    params:
+        title      = lambda wc: f"Percent {wc.metric} by mismatch rate and length ({wc.mapper})",
+        cbar_label = lambda wc: f"{wc.metric.capitalize()} reads (%)"
+    wildcard_constraints:
+        metric = "|".join(METRICS)
+    conda:
+        "envs/python.yml"
+    script:
+        "scripts/plot_heatmap.py"
+
+rule summarize_flagstats:
+    input:
+        expand("map/{mapper}/mm{mm}/flagstat.txt", mapper=MAPPERS, mm=MISMATCHES)
+    output:
+        "summary/mapping_summary.tsv"
+    conda:
+        "envs/python.yml"
+    script:
+        "scripts/summarize_flagstats.py"

@@ -1,0 +1,16 @@
+# Local execution profile (no cluster executor), for development/testing on a single machine.
+# Use via: snakemake --profile profiles/local
+# The cluster profile (profiles/config.yaml, used via --profile profiles) is unaffected.
+
+use-conda: True
+keep-going: True
+rerun-incomplete: True
+restart-times: 1
+printshellcmds: True
+
+jobs: 8
+local-cores: 8
+
+default-resources:
+  mem_mb: 8000
+  runtime: 120

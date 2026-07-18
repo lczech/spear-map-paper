@@ -1,0 +1,33 @@
+# General Snakemake settings
+use-conda: True
+keep-going: True
+rerun-incomplete: True
+restart-times: 1
+printshellcmds: True
+
+# Slurm and cluster settings
+executor: slurm
+jobs: 1000
+max-jobs-per-second: 1
+max-status-checks-per-second: 10
+latency-wait: 60
+local-cores: 1
+
+# Default resources applied for all rules that are not explicitly specified below.
+# In particlar, set the slurm accounting information here as needed.
+# Any category from here can be overwritten by creating a rule-specific config below,
+# as described in the Slurm executor plugin documentation:
+# https://snakemake.github.io/snakemake-plugin-catalog/plugins/executor/slurm.html
+default-resources:
+  #slurm_account: "willerslev"
+  #slurm_account: "caeg"
+  #slurm_partition: "compregular"
+  slurm_account: "spear"
+  slurm_partition: "shared"
+  mem_mb: 15000
+  # Memory in megabytes
+  runtime: 720
+  #10080 #1440  # Runtime in minutes
+  #cpus_per_task: 8
+  nodes: 1
+  tasks: 1
