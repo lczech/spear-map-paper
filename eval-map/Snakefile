@@ -307,9 +307,7 @@ rule map_bowtie2:
         fq = "sim/mm{mm}/reads.fq.gz",
         bt2 = expand(BT2_PREFIX + ".{ext}", ext=["1.bt2", "2.bt2", "3.bt2", "4.bt2", "rev.1.bt2", "rev.2.bt2"])
     output:
-        bam = "map/bowtie2/mm{mm}/bowtie2.bam",
-        bai = "map/bowtie2/mm{mm}/bowtie2.bam.bai",
-        flagstat= "map/bowtie2/mm{mm}/flagstat.txt"
+        bam = temp("map/bowtie2/mm{mm}/bowtie2.unsorted.bam")
     params:
         preset  = config["bowtie2_preset"]
     conda: "envs/mappers.yml"
@@ -324,10 +322,7 @@ rule map_bowtie2:
         exec &> {log}
         mkdir -p map/bowtie2/mm{wildcards.mm}
         bowtie2 {params.preset} -x {BT2_PREFIX} -U {input.fq} -p {threads} \
-          | samtools view -b - \
-          | samtools sort -@ {threads} -o {output.bam}
-        samtools index {output.bam}
-        samtools flagstat {output.bam} > {output.flagstat}
+          | samtools view -b -o {output.bam} -
     """
 
 rule map_bwa_mem:
@@ -339,9 +334,7 @@ rule map_bwa_mem:
         idx_pac = "idx/bwa/genome.fa.pac",
         idx_sa  = "idx/bwa/genome.fa.sa"
     output:
-        bam      = "map/bwa_mem/mm{mm}/bwa_mem.bam",
-        bai      = "map/bwa_mem/mm{mm}/bwa_mem.bam.bai",
-        flagstat = "map/bwa_mem/mm{mm}/flagstat.txt"
+        bam = temp("map/bwa_mem/mm{mm}/bwa_mem.unsorted.bam")
     params:
         preset  = config["bwa_mem_preset"],
     threads: 8
@@ -360,16 +353,13 @@ rule map_bwa_mem:
 
         # BWA writes a lot to stderr; capture it. -v 3 = more verbose.
         bwa mem {params.preset} -v 3 -t {threads} idx/bwa/genome.fa {input.reads} 2> >(tee -a {log} >&2) \
-          | samtools sort -@ {threads} -O BAM -o {output.bam} - 2>> {log}
-
-        samtools index {output.bam} 2>> {log}
-        samtools flagstat {output.bam} > {output.flagstat} 2>> {log}
+          | samtools view -b -o {output.bam} - 2>> {log}
         '''
 
 rule map_bwa_aln:
     """
     Map simulated reads with BWA-ALN (single-end) using 'aln' + 'samse'.
-    Produces sorted, indexed BAM and flagstat.
+    Produces an unsorted BAM; samtools_postprocess sorts, indexes, and computes flagstat.
 
     Notes:
       - BWA-ALN uses the same index as BWA-MEM (already built by rule bwa_index).
@@ -379,9 +369,7 @@ rule map_bwa_aln:
         fq  = "sim/mm{mm}/reads.fq.gz",
         idx = expand("idx/bwa/genome.fa{ext}", ext=[".amb", ".ann", ".bwt", ".pac", ".sa"])
     output:
-        bam     = "map/bwa_aln/mm{mm}/bwa_aln.bam",
-        bai     = "map/bwa_aln/mm{mm}/bwa_aln.bam.bai",
-        flagstat= "map/bwa_aln/mm{mm}/flagstat.txt"
+        bam = temp("map/bwa_aln/mm{mm}/bwa_aln.unsorted.bam")
     params:
         preset  = config["bwa_aln_preset"],
     conda:
@@ -399,13 +387,9 @@ rule map_bwa_aln:
         # 1) Align to produce .sai
         bwa aln -t {threads} {params.preset} idx/bwa/genome.fa {input.fq} > map/bwa_aln/mm{wildcards.mm}/reads.sai
 
-        # 2) Make SAM (single-end)
+        # 2) Make BAM (single-end)
         bwa samse idx/bwa/genome.fa map/bwa_aln/mm{wildcards.mm}/reads.sai {input.fq} \
-          | samtools view -b - \
-          | samtools sort -@ {threads} -o {output.bam}
-
-        samtools index {output.bam}
-        samtools flagstat {output.bam} > {output.flagstat}
+          | samtools view -b -o {output.bam} -
 
         # optional: clean intermediate
         # rm -f map/bwa_aln/mm{wildcards.mm}/reads.sai
@@ -416,12 +400,9 @@ rule map_mapad:
         fq  = "sim/mm{mm}/reads.fq.gz",
         idx = expand(REF_FA + "{ext}", ext=MAPAD_IDX_EXTS)
     output:
-        bam      = "map/mapad/mm{mm}/mapad.bam",
-        bai      = "map/mapad/mm{mm}/mapad.bam.bai",
-        flagstat = "map/mapad/mm{mm}/flagstat.txt"
+        bam = temp("map/mapad/mm{mm}/mapad.unsorted.bam")
     params:
-        preset = config["mapad_preset"],
-        tmp_unsorted = lambda wc: f"map/mapad/mm{wc.mm}/mapad.unsorted.bam"
+        preset = config["mapad_preset"]
     conda: "envs/mappers.yml"
     threads: config["threads"]
     resources:
@@ -435,20 +416,14 @@ rule map_mapad:
         exec &> {log}
         mkdir -p map/mapad/mm{wildcards.mm}
 
-        # mapAD writes an **unsorted** BAM; write to a temp, then coordinate-sort
+        # mapAD writes an unsorted BAM directly; samtools_postprocess sorts, indexes,
+        # and computes flagstat.
         mapad map \
           --threads {threads} \
           --reference {REF_FA} \
           --reads {input.fq} \
-          --output {params.tmp_unsorted} \
+          --output {output.bam} \
           {params.preset}
-
-        # Coordinate-sort (not name-sort!) so unmapped land at the end
-        samtools sort -@ {threads} -o {output.bam} {params.tmp_unsorted}
-        rm -f {params.tmp_unsorted}
-
-        samtools index {output.bam}
-        samtools flagstat {output.bam} > {output.flagstat}
         """
 
 rule map_spear:
@@ -457,16 +432,12 @@ rule map_spear:
         json = f"{SPEAR_IDX_DIR}/map-index.json",
         sidx = f"{SPEAR_IDX_DIR}/map-index.sidx"
     output:
-        bam      = "map/spear/mm{mm}/spear.bam",
-        bai      = "map/spear/mm{mm}/spear.bam.bai",
-        flagstat = "map/spear/mm{mm}/flagstat.txt"
+        bam = temp("map/spear/mm{mm}/spear.unsorted.bam")
     params:
         binary      = config["spear_binary"],
         extra       = config["spear_preset"],
         module_load = config["module_load"],
-        outdir      = lambda wc: f"map/spear/mm{wc.mm}",
-        tmp_unsorted= lambda wc: f"map/spear/mm{wc.mm}/map-align.bam"
-    conda: "envs/mappers.yml"
+        outdir      = lambda wc: f"map/spear/mm{wc.mm}"
     threads: config["threads"]
     resources:
         mem_mb = 500000,
@@ -486,10 +457,35 @@ rule map_spear:
           --allow-file-overwriting \
           {params.extra}
 
-        # spear writes reads in input order, not coordinate order; sort before indexing.
-        samtools sort -@ {threads} -o {output.bam} {params.tmp_unsorted}
-        rm -f {params.tmp_unsorted}
+        # spear writes reads in input order, not coordinate order; samtools_postprocess sorts.
+        # It always names its output map-align.bam; rename to the declared unsorted output.
+        mv {params.outdir}/map-align.bam {output.bam}
+    """
 
+rule samtools_postprocess:
+    """
+    Shared coordinate-sort + index + flagstat step for every mapper's unsorted BAM, kept as its
+    own rule (rather than folded into each map_* rule) so that each mapper's own benchmark file
+    measures only its alignment time, not generic samtools post-processing -- otherwise
+    cross-tool runtime/memory comparisons would be skewed by how much sorting overhead each
+    tool's BAM happened to incur.
+    """
+    input:
+        bam = "map/{mapper}/mm{mm}/{mapper}.unsorted.bam"
+    output:
+        bam      = "map/{mapper}/mm{mm}/{mapper}.bam",
+        bai      = "map/{mapper}/mm{mm}/{mapper}.bam.bai",
+        flagstat = "map/{mapper}/mm{mm}/flagstat.txt"
+    conda: "envs/mappers.yml"
+    threads: config["threads"]
+    resources:
+        mem_mb = 20000
+    benchmark:
+        "benchmarks/{mapper}_postprocess/mm{mm}.benchmark.txt"
+    log: "map/{mapper}/mm{mm}/postprocess.log"
+    shell: r"""
+        exec &> {log}
+        samtools sort -@ {threads} -o {output.bam} {input.bam}
         samtools index {output.bam}
         samtools flagstat {output.bam} > {output.flagstat}
     """
