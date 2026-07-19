@@ -192,7 +192,12 @@ if( EXISTS "${parasail_SUBMODULE_DIR}/parasail.h" )
     message( STATUS "${ColorGreen}Found parasail submodule at ${parasail_SUBMODULE_DIR}${ColorEnd}" )
     set( BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE )
     set( BUILD_TESTING     OFF CACHE BOOL "" FORCE )
+    # parasail's own cmake_minimum_required predates 3.5, which CMake >= 4.0 refuses to run
+    # under at all. Set a policy floor just for this vendored subdirectory instead of patching
+    # it or downgrading our own CMake.
+    set( CMAKE_POLICY_VERSION_MINIMUM 3.5 )
     add_subdirectory( "${parasail_SUBMODULE_DIR}" "${CMAKE_BINARY_DIR}/parasail" )
+    unset( CMAKE_POLICY_VERSION_MINIMUM )
 else()
     message( FATAL_ERROR
         "${ColorRed}parasail submodule not found at ${parasail_SUBMODULE_DIR}. "
