@@ -71,9 +71,12 @@ config = {
     "bowtie2_preset": "-q --no-unal -k 10",
     "bwa_mem_preset": "-a",
     "bwa_aln_preset": "",
-    # mapAD's own required/default flags are not verified here (not available to test locally);
-    # adjust if it errors on an empty preset.
-    "mapad_preset": "",
+    # mapAD has no usable defaults for its damage model -- --library, -f, -d, -s, -i, -p are all
+    # required, unlike the other mappers. Values below are mapAD's own documented example
+    # (https://github.com/mpieva/mapAD, "50% Deamination Parameters"), same as the damage-tuned
+    # preset above. Its docs note that over-specifying damage parameters doesn't meaningfully
+    # hurt accuracy, so these are fine to use even for this damage-free mismatch-only sweep.
+    "mapad_preset": "-p 0.03 -f 0.5 -t 0.5 -d 0.02 -s 1.0 -i 0.001 -x 0.5 --library single_stranded",
     "spear_index_preset": "--max-occurrences-per-kmer 1000",
     "spear_preset": "",
 }
