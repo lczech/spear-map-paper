@@ -78,7 +78,7 @@ config = {
     # hurt accuracy, so these are fine to use even for this damage-free mismatch-only sweep.
     "mapad_preset": "-p 0.03 -f 0.5 -t 0.5 -d 0.02 -s 1.0 -i 0.001 -x 0.5 --library single_stranded",
     "spear_index_preset": "--max-occurrences-per-kmer 1000",
-    "spear_preset": "",
+    "spear_preset": "--seeding-min-hit-fraction 0.5 --seeding-max-occurrences-per-kmer 500 --seeding-max-seeds 10",
 }
 
 REF_FA      = f"ref/{config['ref_basename']}.fa"
@@ -469,7 +469,8 @@ rule map_spear:
     conda: "envs/mappers.yml"
     threads: config["threads"]
     resources:
-        mem_mb = 500000
+        mem_mb = 500000,
+        runtime = 1440
     benchmark:
         "benchmarks/spear/mm{mm}.benchmark.txt"
     log: "map/spear/mm{mm}/spear.log"
@@ -575,6 +576,8 @@ rule length_correct_from_bam:
     params:
         len_min = LEN_MIN,
         len_max = LEN_MAX
+    resources:
+        mem_mb = 250000
     conda: "envs/python.yml"
     script: "scripts/length_correct_from_bam.py"
 
