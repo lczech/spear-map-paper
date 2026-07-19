@@ -466,7 +466,7 @@ rule map_spear:
     conda: "envs/mappers.yml"
     threads: config["threads"]
     resources:
-        mem_mb = 150000
+        mem_mb = 500000
     benchmark:
         "benchmarks/spear/mm{mm}.benchmark.txt"
     log: "map/spear/mm{mm}/spear.log"
