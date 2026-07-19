@@ -23,7 +23,8 @@ default-resources:
   #slurm_account: "caeg"
   #slurm_partition: "compregular"
   slurm_account: "spear"
-  slurm_partition: "shared"
+  #slurm_partition: "shared"
+  slurm_extra: "'--qos=normal'"
   mem_mb: 15000
   # Memory in megabytes
   runtime: 720
