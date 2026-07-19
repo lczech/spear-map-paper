@@ -134,7 +134,9 @@ localrules:
 rule download_reference:
     output: REF_FA_GZ
     conda: "envs/utils.yml"
+    log: "ref/download_reference.log"
     shell: r"""
+        exec &> {log}
         mkdir -p ref
         wget -O {output} "{config[ref_url]}"
     """
@@ -146,7 +148,9 @@ rule decompress_reference:
     input: REF_FA_GZ
     output: REF_FA
     conda: "envs/utils.yml"
+    log: "ref/decompress_reference.log"
     shell: r"""
+        exec &> {log}
         mkdir -p ref
         if file -b --mime-type {input} | grep -q 'gzip'; then
             pigz -dc {input} > {output}
@@ -161,7 +165,9 @@ rule faidx:
     conda: "envs/mappers.yml"
     benchmark:
         "benchmarks/index_faidx/benchmark.txt"
+    log: "ref/faidx.log"
     shell: r"""
+        exec &> {log}
         samtools faidx {input}
     """
 
@@ -176,7 +182,9 @@ rule bowtie2_build:
     threads: 4
     benchmark:
         "benchmarks/index_bowtie2/benchmark.txt"
+    log: "idx/bowtie2/build.log"
     shell: r"""
+        exec &> {log}
         mkdir -p idx/bowtie2
         bowtie2-build --threads {threads} {input} {BT2_PREFIX}
     """
@@ -188,7 +196,9 @@ rule bwa_index:
     threads: 4
     benchmark:
         "benchmarks/index_bwa/benchmark.txt"
+    log: "idx/bwa/index.log"
     shell: r"""
+        exec &> {log}
         mkdir -p idx/bwa
         cp -f {input} {BWA_PREFIX}
         bwa index -p {BWA_PREFIX} {BWA_PREFIX}
@@ -205,8 +215,10 @@ rule mapad_index:
         mem_mb = 500000
     benchmark:
         "benchmarks/index_mapad/benchmark.txt"
+    log: "idx/mapad/index.log"
     shell:
         r"""
+        exec &> {log}
         mapad index --reference {input}
         """
 
@@ -224,7 +236,9 @@ rule spear_index:
         mem_mb = 700000
     benchmark:
         "benchmarks/index_spear/benchmark.txt"
+    log: f"{SPEAR_IDX_DIR}/index.log"
     shell: r"""
+        exec &> {log}
         {params.module_load}
         mkdir -p {SPEAR_IDX_DIR}
         {params.binary} map index \
@@ -264,7 +278,9 @@ rule simulate_reads:
         mem_mb = 10000
     benchmark:
         "benchmarks/simulate_reads/mm{mm}.benchmark.txt"
+    log: "sim/mm{mm}/simulate.log"
     shell: r"""
+        exec &> {log}
         {params.module_load}
         mkdir -p sim/mm{wildcards.mm}
         {params.simulator} \
@@ -300,7 +316,9 @@ rule map_bowtie2:
         #runtime = 1440
     benchmark:
         "benchmarks/bowtie2/mm{mm}.benchmark.txt"
+    log: "map/bowtie2/mm{mm}/bowtie2.log"
     shell: r"""
+        exec &> {log}
         mkdir -p map/bowtie2/mm{wildcards.mm}
         bowtie2 {params.preset} -x {BT2_PREFIX} -U {input.fq} -p {threads} \
           | samtools view -b - \
@@ -370,8 +388,10 @@ rule map_bwa_aln:
         runtime = 1440
     benchmark:
         "benchmarks/bwa_aln/mm{mm}.benchmark.txt"
+    log: "map/bwa_aln/mm{mm}/bwa_aln.log"
     shell:
         r"""
+        exec &> {log}
         mkdir -p map/bwa_aln/mm{wildcards.mm}
         # 1) Align to produce .sai
         bwa aln -t {threads} {params.preset} idx/bwa/genome.fa {input.fq} > map/bwa_aln/mm{wildcards.mm}/reads.sai
@@ -406,8 +426,10 @@ rule map_mapad:
         runtime = 1440
     benchmark:
         "benchmarks/mapad/mm{mm}.benchmark.txt"
+    log: "map/mapad/mm{mm}/mapad.log"
     shell:
         r"""
+        exec &> {log}
         mkdir -p map/mapad/mm{wildcards.mm}
 
         # mapAD writes an **unsorted** BAM; write to a temp, then coordinate-sort
@@ -447,7 +469,9 @@ rule map_spear:
         mem_mb = 150000
     benchmark:
         "benchmarks/spear/mm{mm}.benchmark.txt"
+    log: "map/spear/mm{mm}/spear.log"
     shell: r"""
+        exec &> {log}
         {params.module_load}
         mkdir -p {params.outdir}
         {params.binary} map align \
@@ -478,7 +502,9 @@ rule length_totals_from_fastq:
     input: "sim/mm{mm}/reads.fq.gz"
     output: "stats/total/mm{mm}.len.tsv"
     conda: "envs/utils.yml"
+    log: "stats/total/mm{mm}.log"
     shell: r"""
+        exec &> {log}
         mkdir -p stats/total
         # FASTQ: sequence line is every 4th line, i.e., NR%4==2
         pigz -dc {input} \
@@ -499,7 +525,9 @@ rule length_mapped_from_bam:
     input: bam="map/{mapper}/mm{mm}/{mapper}.bam"
     output: "stats/{mapper}/mm{mm}.mapped.len.tsv"
     conda: "envs/mappers.yml"
+    log: "stats/{mapper}/mm{mm}.mapped.log"
     shell: r"""
+        exec &> {log}
         mkdir -p stats/{wildcards.mapper}
         samtools view -F 0x904 {input.bam} \
           | awk '{{print length($10) "\t" $1}}' \
@@ -522,7 +550,9 @@ rule extract_bam_hits:
     input: bam="map/{mapper}/mm{mm}/{mapper}.bam"
     output: "stats/{mapper}/mm{mm}.hits.tsv"
     conda: "envs/mappers.yml"
+    log: "stats/{mapper}/mm{mm}.hits.log"
     shell: r"""
+        exec &> {log}
         mkdir -p stats/{wildcards.mapper}
         samtools view -F 4 {input.bam} \
           | awk 'BEGIN{{OFS="\t"}} {{print $1,$2,$3,$4}}' \
