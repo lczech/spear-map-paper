@@ -21,7 +21,7 @@ config = {
     # their runtime library requirements available. Set for the cluster; clear to "" on machines
     # without environment modules (e.g. `module load` isn't a command there, so this would error).
     # "module_load": "module load gcc/12.2.0-foss-2022b-conda; module load bzip2/1.0.8-GCCcore-12.2.0",
-    "module_load": "micromamba activate cpp-build",
+    "module_load": 'eval "$(micromamba shell hook --shell bash)" && micromamba activate cpp-build',
 
     # Path to the spear binary. Spear is developed in its own sibling repo and is not vendored
     # here, so this needs to be adjusted manually to wherever you have it built (e.g. an absolute
